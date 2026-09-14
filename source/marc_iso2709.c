@@ -151,33 +151,47 @@ static int field_length(
  * Control fields must precede data fields.
  *
  * Within each group, fields are sorted by tag.
+ *
+ * If two fields have the same tag, this function
+ * returns 0. The stable insertion sort used by the
+ * writer will then preserve their original order.
  */
 static int compare_fields(
-    const void *a,
-    const void *b
+    const MARC_Field *field_a,
+    const MARC_Field *field_b
 )
 {
-    const MARC_Field *field_a;
-    const MARC_Field *field_b;
+    int field_a_control;
+    int field_b_control;
 
-    field_a =
-        *(const MARC_Field * const *)a;
-
-    field_b =
-        *(const MARC_Field * const *)b;
-
-    if (is_control_field(field_a) &&
-        !is_control_field(field_b))
+    if (field_a == NULL ||
+        field_b == NULL)
     {
-        return -1;
+        return 0;
     }
 
-    if (!is_control_field(field_a) &&
-        is_control_field(field_b))
+    field_a_control =
+        is_control_field(field_a);
+
+    field_b_control =
+        is_control_field(field_b);
+
+    /*
+     * Control fields come before data fields.
+     */
+    if (field_a_control != field_b_control)
     {
-        return 1;
+        return field_a_control ? -1 : 1;
     }
 
+    /*
+     * Within the same field type, sort by tag.
+     *
+     * Equal tags return 0.
+     *
+     * The stable insertion sort used by the writer
+     * preserves the original order of repeated fields.
+     */
     return strcmp(
         marc_field_get_tag(field_a),
         marc_field_get_tag(field_b)
@@ -520,12 +534,50 @@ int marc_record_write(
     }
 
 
-    qsort(
-        fields,
-        field_count,
-        sizeof(MARC_Field *),
-        compare_fields
-    );
+    /*
+     * Stable insertion sort.
+     *
+     * ISO 2709 requires directory entries to be ordered
+     * by tag, but repeated MARC fields may have the same
+     * tag.
+     *
+     * qsort() is not guaranteed to be stable in C, so it
+     * could reorder repeated fields such as:
+     *
+     *     650 $a Libraries
+     *     650 $a Metadata
+     *
+     * This insertion sort preserves the original order
+     * whenever compare_fields() returns 0.
+     */
+    for (size_t sort_index = 1;
+         sort_index < field_count;
+         sort_index++)
+    {
+        MARC_Field *current_field;
+        size_t sort_position;
+
+        current_field =
+            fields[sort_index];
+
+        sort_position =
+            sort_index;
+
+        while (sort_position > 0 &&
+               compare_fields(
+                   current_field,
+                   fields[sort_position - 1]
+               ) < 0)
+        {
+            fields[sort_position] =
+                fields[sort_position - 1];
+
+            sort_position--;
+        }
+
+        fields[sort_position] =
+            current_field;
+    }
 
 
     /*

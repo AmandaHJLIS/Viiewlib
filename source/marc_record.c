@@ -323,3 +323,44 @@ const char *marc_record_get_control_field(
 
     return NULL;
 }
+
+MARC_Field *marc_record_get_field_by_tag(
+    const MARC_Record *record,
+    const char *tag
+)
+{
+    MARC_Field *field;
+
+    if (record == NULL ||
+        tag == NULL)
+    {
+        return NULL;
+    }
+
+    if (strlen(tag) != 3)
+    {
+        return NULL;
+    }
+
+    for (size_t i = 0;
+         i < record->field_count;
+         i++)
+    {
+        field = record->fields[i];
+
+        if (field == NULL)
+        {
+            continue;
+        }
+
+        if (strcmp(
+            marc_field_get_tag(field),
+            tag
+        ) == 0)
+        {
+            return field;
+        }
+    }
+
+    return NULL;
+}
