@@ -40,7 +40,7 @@ The build produces:
 
 `make` produces:
 
-- `libviiewlib.a` — static library
+`libviiewlib.a` — static library
 
 `make test` builds and runs the MARC test suite. The test tooling may also
 produce `.mrc` files containing encoded MARC 21 records.
