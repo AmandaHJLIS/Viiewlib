@@ -2,8 +2,7 @@
 
 ## ViiewLib
 
-ViiewLib is a lightweight C library providing reusable functionality
-for MARC 21 and related library/information-science tooling.
+ViiewLib is a lightweight, portable C library for working with MARC 21 records and ISO 2709-encoded bibliographic data. It is designed to provide a simple API with minimal dependencies for applications that need to read, manipulate, validate, and write MARC records.
 
 ## Current Status
 
