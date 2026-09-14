@@ -9,9 +9,20 @@ ViiewLib is a lightweight, portable C library for working with MARC 21 records a
 Early development / experimental.
 
 Current functionality:
-- MARC 21 record handling
-- MARC record parsing/encoding
-- Unit tests
+
+* MARC 21 record creation and handling
+* Control field support (`001`, `005`, `008`, etc.)
+* Variable field support
+* Indicators and subfields
+* Repeated field support
+* Field lookup
+* MARC 21 record parsing
+* ISO 2709 encoding and decoding
+* ISO 2709 record writing and reading
+* MARC 21 ↔ ISO 2709 round-trip support
+* Automated test suite covering record creation, encoding, decoding, field handling, and round-trip integrity
+
+The library is still under active development. API design, validation, error handling, documentation, and additional MARC 21 / ISO 2709 functionality will continue to evolve.
 
 ## Requirements
 
