@@ -21,13 +21,14 @@ Current functionality:
 
 ## Building
 
-- Clone the repository:
-```git clone <repository-url>```
-```cd ViiewLib```
+Clone the repository:
 
-- Build the library:
+git clone <repository-url>
+cd ViiewLib
 
-```make```
+Build the library:
+
+make
 
 ## Running Tests
 
