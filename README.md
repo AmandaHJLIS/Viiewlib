@@ -21,12 +21,12 @@ Current functionality:
 
 ## Building
 
-- Clone the repository:
+Clone the repository:
 
 git clone <repository-url>
 cd ViiewLib
 
-- Build the library:
+Build the library:
 
 make
 
