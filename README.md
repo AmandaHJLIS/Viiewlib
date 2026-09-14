@@ -1,7 +1,5 @@
 <img width="305" height="66" alt="ViiewLib logo" src="https://github.com/user-attachments/assets/03c9e97a-c0ab-46e0-bcd5-0da25d0c03b6" />
 
-# ViiewLib
-
 ViiewLib is a lightweight C library providing reusable functionality
 for MARC 21 and related library/information-science tooling.
 
