@@ -38,8 +38,12 @@ make test
 
 The build produces:
 
+`make` produces:
+
 - `libviiewlib.a` — static library
-- `tests/test_marc` — MARC test executable
+
+`make test` builds and runs the MARC test suite. The test tooling may also
+produce `.mrc` files containing encoded MARC 21 records.
 
 ## Example
 
