@@ -46,8 +46,11 @@ The build produces:
 ## Project Structure
 
 include/    Public headers
+
 src/        Library source
+
 tests/      Test programs
+
 Makefile    Build configuration
 
 ## License
