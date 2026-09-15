@@ -152,50 +152,41 @@ static int field_length(
  *
  * Within each group, fields are sorted by tag.
  *
- * If two fields have the same tag, this function
- * returns 0. The stable insertion sort used by the
- * writer will then preserve their original order.
+ * This ordering is intentionally stable: fields with identical tags
+ * retain their original record order.
  */
 static int compare_fields(
     const MARC_Field *field_a,
     const MARC_Field *field_b
 )
 {
-    int field_a_control;
-    int field_b_control;
+    int a_control;
+    int b_control;
+    int tag_compare;
 
-    if (field_a == NULL ||
-        field_b == NULL)
-    {
-        return 0;
-    }
-
-    field_a_control =
+    a_control =
         is_control_field(field_a);
 
-    field_b_control =
+    b_control =
         is_control_field(field_b);
 
-    /*
-     * Control fields come before data fields.
-     */
-    if (field_a_control != field_b_control)
+    if (a_control && !b_control)
     {
-        return field_a_control ? -1 : 1;
+        return -1;
     }
 
-    /*
-     * Within the same field type, sort by tag.
-     *
-     * Equal tags return 0.
-     *
-     * The stable insertion sort used by the writer
-     * preserves the original order of repeated fields.
-     */
-    return strcmp(
-        marc_field_get_tag(field_a),
-        marc_field_get_tag(field_b)
-    );
+    if (!a_control && b_control)
+    {
+        return 1;
+    }
+
+    tag_compare =
+        strcmp(
+            marc_field_get_tag(field_a),
+            marc_field_get_tag(field_b)
+        );
+
+    return tag_compare;
 }
 
 
@@ -537,46 +528,29 @@ int marc_record_write(
     /*
      * Stable insertion sort.
      *
-     * ISO 2709 requires directory entries to be ordered
-     * by tag, but repeated MARC fields may have the same
-     * tag.
-     *
-     * qsort() is not guaranteed to be stable in C, so it
-     * could reorder repeated fields such as:
-     *
-     *     650 $a Libraries
-     *     650 $a Metadata
-     *
-     * This insertion sort preserves the original order
-     * whenever compare_fields() returns 0.
+     * qsort() is not required to preserve the relative order of
+     * equal elements. That matters for MARC because repeated fields
+     * with the same tag must retain their original order.
      */
-    for (size_t sort_index = 1;
-         sort_index < field_count;
-         sort_index++)
+    for (i = 1; i < field_count; i++)
     {
-        MARC_Field *current_field;
-        size_t sort_position;
+        MARC_Field *current;
+        size_t j;
 
-        current_field =
-            fields[sort_index];
+        current = fields[i];
+        j = i;
 
-        sort_position =
-            sort_index;
-
-        while (sort_position > 0 &&
+        while (j > 0 &&
                compare_fields(
-                   current_field,
-                   fields[sort_position - 1]
-               ) < 0)
+                   fields[j - 1],
+                   current
+               ) > 0)
         {
-            fields[sort_position] =
-                fields[sort_position - 1];
-
-            sort_position--;
+            fields[j] = fields[j - 1];
+            j--;
         }
 
-        fields[sort_position] =
-            current_field;
+        fields[j] = current;
     }
 
 
