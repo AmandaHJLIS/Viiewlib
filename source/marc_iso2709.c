@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "viiewlib/marc.h"
 
@@ -15,18 +16,10 @@
 /*
  * Determine whether a MARC tag is a control field.
  *
- * MARC 21 control fields occupy the 00X range:
+ * MARC 21 control fields occupy the 001-009 range.
  *
- *     001
- *     003
- *     005
- *     006
- *     007
- *     008
- *
- * The previous implementation accidentally checked for
- * the specific tag "000", which caused fields such as 001,
- * 005 and 008 to be encoded as data fields.
+ * Control fields contain their value directly and do not
+ * contain indicators or subfields.
  */
 static int is_control_field(
     const char *tag
@@ -39,8 +32,102 @@ static int is_control_field(
 
     return (
         tag[0] == '0' &&
-        tag[1] == '0'
+        tag[1] == '0' &&
+        tag[2] >= '1' &&
+        tag[2] <= '9'
     );
+}
+
+
+/*
+ * Validate a MARC field tag.
+ *
+ * MARC tags are exactly three characters.
+ */
+static int is_valid_tag(
+    const char *tag
+)
+{
+    if (tag == NULL)
+    {
+        return 0;
+    }
+
+    if (tag[0] == '\0' ||
+        tag[1] == '\0' ||
+        tag[2] == '\0')
+    {
+        return 0;
+    }
+
+    if (tag[3] != '\0')
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+
+/*
+ * Check whether a value fits inside an ISO 2709
+ * fixed-width decimal field.
+ *
+ * Examples:
+ *
+ *     4 digits -> 0000 through 9999
+ *     5 digits -> 00000 through 99999
+ */
+static int fits_decimal_width(
+    size_t value,
+    size_t digits
+)
+{
+    size_t maximum;
+    size_t i;
+
+    maximum = 1;
+
+    for (i = 0; i < digits; i++)
+    {
+        maximum *= 10;
+    }
+
+    return value < maximum;
+}
+
+
+/*
+ * Write a fixed-width decimal value.
+ *
+ * The caller must ensure that the value fits within
+ * the requested number of digits.
+ *
+ * The output is zero-filled on the left.
+ *
+ * Examples:
+ *
+ *     width 4, value 25  -> "0025"
+ *     width 5, value 133 -> "00133"
+ */
+static void write_decimal(
+    unsigned char *buffer,
+    size_t width,
+    size_t value
+)
+{
+    size_t i;
+
+    for (i = width; i > 0; i--)
+    {
+        buffer[i - 1] =
+            (unsigned char)(
+                '0' +
+                (value % 10)
+            );
+
+        value /= 10;
+    }
 }
 
 
@@ -79,7 +166,15 @@ static size_t field_length(
     size_t count;
     size_t i;
 
-    tag = marc_field_get_tag(field);
+    if (field == NULL)
+    {
+        return 0;
+    }
+
+    tag =
+        marc_field_get_tag(
+            field
+        );
 
     if (tag == NULL)
     {
@@ -100,6 +195,10 @@ static size_t field_length(
 
         if (value == NULL)
         {
+            /*
+             * An empty control field still contains
+             * its field terminator.
+             */
             return 1;
         }
 
@@ -123,10 +222,13 @@ static size_t field_length(
         MARC_Subfield *subfield;
         const char *value;
 
+        /*
+         * marc_field_get_subfield() takes an index.
+         */
         subfield =
             marc_field_get_subfield(
                 field,
-                (char)i
+                i
             );
 
         if (subfield == NULL)
@@ -180,7 +282,9 @@ static int encode_field(
     }
 
     tag =
-        marc_field_get_tag(field);
+        marc_field_get_tag(
+            field
+        );
 
     if (tag == NULL)
     {
@@ -188,9 +292,12 @@ static int encode_field(
     }
 
     required =
-        field_length(field);
+        field_length(
+            field
+        );
 
-    if (required > buffer_size)
+    if (required == 0 ||
+        required > buffer_size)
     {
         return -1;
     }
@@ -199,8 +306,7 @@ static int encode_field(
      * Control field.
      *
      * Control fields contain only their value followed
-     * by the field terminator. They do NOT have indicators
-     * or subfield delimiters.
+     * by the field terminator.
      */
     if (is_control_field(tag))
     {
@@ -240,11 +346,15 @@ static int encode_field(
      */
     buffer[0] =
         (unsigned char)
-            marc_field_get_indicator1(field);
+            marc_field_get_indicator1(
+                field
+            );
 
     buffer[1] =
         (unsigned char)
-            marc_field_get_indicator2(field);
+            marc_field_get_indicator2(
+                field
+            );
 
     position = 2;
 
@@ -263,7 +373,7 @@ static int encode_field(
         subfield =
             marc_field_get_subfield(
                 field,
-                (char)i
+                i
             );
 
         if (subfield == NULL)
@@ -386,6 +496,9 @@ int marc_record_write(
             record
         );
 
+    /*
+     * ISO 2709 records require at least one field.
+     */
     if (field_count == 0)
     {
         return -1;
@@ -402,8 +515,13 @@ int marc_record_write(
         return -1;
     }
 
+    /*
+     * Collect and validate fields.
+     */
     for (i = 0; i < field_count; i++)
     {
+        const char *tag;
+
         fields[i] =
             marc_record_get_field(
                 record,
@@ -415,8 +533,23 @@ int marc_record_write(
             free(fields);
             return -1;
         }
+
+        tag =
+            marc_field_get_tag(
+                fields[i]
+            );
+
+        if (!is_valid_tag(tag))
+        {
+            free(fields);
+            return -1;
+        }
     }
 
+    /*
+     * Sort fields by MARC tag while preserving the
+     * original order of repeated fields.
+     */
     stable_sort_fields(
         fields,
         field_count
@@ -428,6 +561,14 @@ int marc_record_write(
      * 12 bytes per entry
      * plus directory terminator.
      */
+    if (field_count >
+        (SIZE_MAX - 1) /
+        MARC_DIRECTORY_ENTRY)
+    {
+        free(fields);
+        return -1;
+    }
+
     directory_length =
         field_count *
         MARC_DIRECTORY_ENTRY;
@@ -454,6 +595,28 @@ int marc_record_write(
             return -1;
         }
 
+        /*
+         * ISO 2709 directory field length is four digits.
+         */
+        if (!fits_decimal_width(
+                length,
+                4
+            ))
+        {
+            free(fields);
+            return -1;
+        }
+
+        /*
+         * Prevent size_t overflow.
+         */
+        if (data_length >
+            SIZE_MAX - length)
+        {
+            free(fields);
+            return -1;
+        }
+
         data_length += length;
     }
 
@@ -462,9 +625,28 @@ int marc_record_write(
      *
      * leader + directory + directory terminator.
      */
+    if (MARC_LEADER_LENGTH >
+        SIZE_MAX - directory_length)
+    {
+        free(fields);
+        return -1;
+    }
+
     base_address =
         MARC_LEADER_LENGTH +
         directory_length;
+
+    /*
+     * ISO 2709 base address is five decimal digits.
+     */
+    if (!fits_decimal_width(
+            base_address,
+            5
+        ))
+    {
+        free(fields);
+        return -1;
+    }
 
     /*
      * Complete ISO 2709 record:
@@ -474,11 +656,41 @@ int marc_record_write(
      * data
      * record terminator
      */
+    if (base_address >
+        SIZE_MAX - data_length)
+    {
+        free(fields);
+        return -1;
+    }
+
     record_length =
         base_address +
-        data_length +
-        1;
+        data_length;
 
+    if (record_length >
+        SIZE_MAX - 1)
+    {
+        free(fields);
+        return -1;
+    }
+
+    record_length += 1;
+
+    /*
+     * ISO 2709 record length is five decimal digits.
+     */
+    if (!fits_decimal_width(
+            record_length,
+            5
+        ))
+    {
+        free(fields);
+        return -1;
+    }
+
+    /*
+     * Allocate directory.
+     */
     directory =
         malloc(
             directory_length
@@ -490,6 +702,9 @@ int marc_record_write(
         return -1;
     }
 
+    /*
+     * Allocate field data.
+     */
     data =
         malloc(
             data_length
@@ -502,6 +717,9 @@ int marc_record_write(
         return -1;
     }
 
+    /*
+     * Construct leader.
+     */
     memset(
         leader,
         ' ',
@@ -511,11 +729,10 @@ int marc_record_write(
     /*
      * Record length.
      */
-    snprintf(
-        (char *)leader,
-        6,
-        "%05lu",
-        (unsigned long)record_length
+    write_decimal(
+        leader,
+        5,
+        record_length
     );
 
     /*
@@ -531,14 +748,11 @@ int marc_record_write(
 
     /*
      * Base address of data.
-     *
-     * ISO 2709 allows five decimal digits here.
      */
-    snprintf(
-        (char *)leader + 12,
-        6,
-        "%05lu",
-        (unsigned long)base_address
+    write_decimal(
+        leader + 12,
+        5,
+        base_address
     );
 
     leader[17] = ' ';
@@ -552,6 +766,9 @@ int marc_record_write(
     directory_position = 0;
     data_position = 0;
 
+    /*
+     * Build directory and field data.
+     */
     for (i = 0; i < field_count; i++)
     {
         const char *tag;
@@ -562,7 +779,15 @@ int marc_record_write(
                 fields[i]
             );
 
-        if (tag == NULL)
+        length =
+            field_length(
+                fields[i]
+            );
+
+        if (!fits_decimal_width(
+                length,
+                4
+            ))
         {
             free(data);
             free(directory);
@@ -570,10 +795,19 @@ int marc_record_write(
             return -1;
         }
 
-        length =
-            field_length(
-                fields[i]
-            );
+        /*
+         * Starting position is five decimal digits.
+         */
+        if (!fits_decimal_width(
+                data_position,
+                5
+            ))
+        {
+            free(data);
+            free(directory);
+            free(fields);
+            return -1;
+        }
 
         /*
          * Tag.
@@ -588,31 +822,32 @@ int marc_record_write(
             (unsigned char)tag[2];
 
         /*
-         * Field length: 4 digits.
+         * Field length: four digits.
          */
-        snprintf(
-            (char *)directory +
+        write_decimal(
+            directory +
                 directory_position,
-            5,
-            "%04lu",
-            (unsigned long)length
+            4,
+            length
         );
 
         directory_position += 4;
 
         /*
-         * Starting position: 5 digits.
+         * Starting position: five digits.
          */
-        snprintf(
-            (char *)directory +
+        write_decimal(
+            directory +
                 directory_position,
-            6,
-            "%05lu",
-            (unsigned long)data_position
+            5,
+            data_position
         );
 
         directory_position += 5;
 
+        /*
+         * Encode field data.
+         */
         if (encode_field(
                 fields[i],
                 data + data_position,
