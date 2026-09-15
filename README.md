@@ -145,6 +145,9 @@ Example usage documentation and API examples will be expanded as the public API 
 
 ```text
 ViiewLib/
+├── examples/
+│       ├── baic_marc.c
+│       ├── marc_iso2709.c
 ├── include/
 │   └── viiewlib/
 │       ├── marc.h
