@@ -6,27 +6,34 @@ ViiewLib is a lightweight, portable C library for working with MARC 21 records a
 
 ## Current Status
 
-**Early development / experimental.**
+**Early-stage functional / active development.**
 
-ViiewLib currently provides a lightweight C API for working with MARC 21 records and ISO 2709 data.
+ViiewLib is a lightweight C API for working with MARC 21 records and ISO 2709 data.
 
-Current functionality:
+Current functionality includes:
 
-* MARC 21 record creation and handling
+* MARC 21 record creation and manipulation
 * Control field support (`001`, `005`, `008`, etc.)
 * Variable field support
 * Indicators and subfields
-* Repeated field support
+* Repeated field support with preserved field order
 * Field lookup
 * MARC 21 record parsing
 * ISO 2709 encoding and decoding
 * ISO 2709 record writing and reading
 * MARC 21 ↔ ISO 2709 round-trip support
-* Automated tests covering record creation, field handling, encoding, decoding, round-trip integrity, and malformed ISO 2709 input
+* Validation and rejection of malformed ISO 2709 records
+* Regression and robustness testing
+* Basic API usage examples
+* ISO 2709 API usage examples
 
-The library is still under active development. API design, validation, error handling, documentation, and additional MARC 21 / ISO 2709 functionality will continue to evolve.
+The current test suite covers record creation, control fields, variable fields, repeated fields, special characters, field lookup, ISO 2709 encoding and decoding, round-trip integrity, large field/subfield values, and malformed or truncated ISO 2709 input.
 
-ViiewLib does **not** currently claim complete MARC 21 or ISO 2709 standards conformance.
+The library currently builds and tests successfully with a standard C11 toolchain. Portability testing with other toolchains and platforms, including devkitPPC/Wii, is planned.
+
+ViiewLib remains under active development. API design, validation, error handling, documentation, standards coverage, interoperability, and additional MARC 21 / ISO 2709 functionality will continue to evolve.
+
+ViiewLib does **not** currently claim complete MARC 21 or ISO 2709 standards conformance or production readiness.
 
 ## Requirements
 
