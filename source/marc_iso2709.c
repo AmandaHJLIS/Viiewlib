@@ -4,132 +4,149 @@
 
 #include "viiewlib/marc.h"
 
-#define MARC_RECORD_TERMINATOR  0x1D
-#define MARC_FIELD_TERMINATOR   0x1E
 #define MARC_SUBFIELD_DELIMITER 0x1F
+#define MARC_FIELD_TERMINATOR   0x1E
+#define MARC_RECORD_TERMINATOR  0x1D
 
-#define MARC_MAX_RECORD_LENGTH 99999
-#define MARC_MAX_FIELD_LENGTH  9999
-#define MARC_MAX_FIELD_POSITION 99999
+#define MARC_LEADER_LENGTH      24
+#define MARC_DIRECTORY_ENTRY    12
 
 
 /*
- * --------------------------------------------------------------------------
- * Internal helpers
- * --------------------------------------------------------------------------
+ * Determine whether a MARC tag is a control field.
+ *
+ * MARC 21 control fields occupy the 00X range:
+ *
+ *     001
+ *     003
+ *     005
+ *     006
+ *     007
+ *     008
+ *
+ * The previous implementation accidentally checked for
+ * the specific tag "000", which caused fields such as 001,
+ * 005 and 008 to be encoded as data fields.
  */
-
 static int is_control_field(
-    const MARC_Field *field
+    const char *tag
 )
 {
-    if (field == NULL)
+    if (tag == NULL)
     {
         return 0;
     }
 
-    return marc_field_is_control_field(
-        field
+    return (
+        tag[0] == '0' &&
+        tag[1] == '0'
     );
 }
 
 
 /*
- * Calculate the number of bytes occupied by
- * a field in the ISO 2709 variable-field area.
+ * Compare two fields by MARC tag.
  */
-static int field_length(
-    const MARC_Field *field
+static int compare_fields(
+    MARC_Field *a,
+    MARC_Field *b
 )
 {
+    const char *tag_a;
+    const char *tag_b;
+
+    tag_a = marc_field_get_tag(a);
+    tag_b = marc_field_get_tag(b);
+
+    if (tag_a == NULL || tag_b == NULL)
+    {
+        return 0;
+    }
+
+    return strcmp(tag_a, tag_b);
+}
+
+
+/*
+ * Return the encoded length of a MARC field.
+ */
+static size_t field_length(
+    MARC_Field *field
+)
+{
+    const char *tag;
     size_t length;
+    size_t count;
     size_t i;
 
-    if (field == NULL)
+    tag = marc_field_get_tag(field);
+
+    if (tag == NULL)
     {
-        return -1;
+        return 0;
     }
 
     /*
-     * Control field:
-     *
-     * value
-     * field terminator
+     * Control fields contain their value directly.
      */
-    if (is_control_field(field))
+    if (is_control_field(tag))
     {
         const char *value;
 
-        value = marc_field_get_control_value(
-            field
-        );
+        value =
+            marc_field_get_control_value(
+                field
+            );
 
         if (value == NULL)
         {
-            return -1;
+            return 1;
         }
 
-        length = strlen(value) + 1;
-
-        if (length > MARC_MAX_FIELD_LENGTH)
-        {
-            return -1;
-        }
-
-        return (int)length;
+        return strlen(value) + 1;
     }
 
     /*
      * Data field:
      *
-     * indicator 1
-     * indicator 2
-     *
-     * for each subfield:
-     *     delimiter
-     *     code
-     *     value
-     *
-     * field terminator
+     * two indicators
      */
     length = 2;
 
-    for (i = 0;
-         i < marc_field_get_subfield_count(field);
-         i++)
+    count =
+        marc_field_get_subfield_count(
+            field
+        );
+
+    for (i = 0; i < count; i++)
     {
         MARC_Subfield *subfield;
         const char *value;
 
-        subfield = marc_field_get_subfield(
-            field,
-            i
-        );
+        subfield =
+            marc_field_get_subfield(
+                field,
+                (char)i
+            );
 
         if (subfield == NULL)
         {
-            return -1;
+            continue;
         }
 
-        value = marc_subfield_get_value(
-            subfield
-        );
-
-        if (value == NULL)
-        {
-            return -1;
-        }
+        value =
+            marc_subfield_get_value(
+                subfield
+            );
 
         /*
-         * Delimiter + subfield code.
+         * Subfield delimiter + code.
          */
         length += 2;
 
-        length += strlen(value);
-
-        if (length > MARC_MAX_FIELD_LENGTH)
+        if (value != NULL)
         {
-            return -1;
+            length += strlen(value);
         }
     }
 
@@ -138,369 +155,252 @@ static int field_length(
      */
     length += 1;
 
-    if (length > MARC_MAX_FIELD_LENGTH)
-    {
-        return -1;
-    }
-
-    return (int)length;
+    return length;
 }
 
 
 /*
- * Control fields must precede data fields.
- *
- * Within each group, fields are sorted by tag.
- *
- * This ordering is intentionally stable: fields with identical tags
- * retain their original record order.
+ * Encode one MARC field.
  */
-static int compare_fields(
-    const MARC_Field *field_a,
-    const MARC_Field *field_b
+static int encode_field(
+    MARC_Field *field,
+    unsigned char *buffer,
+    size_t buffer_size
 )
 {
-    int a_control;
-    int b_control;
-    int tag_compare;
-
-    a_control =
-        is_control_field(field_a);
-
-    b_control =
-        is_control_field(field_b);
-
-    if (a_control && !b_control)
-    {
-        return -1;
-    }
-
-    if (!a_control && b_control)
-    {
-        return 1;
-    }
-
-    tag_compare =
-        strcmp(
-            marc_field_get_tag(field_a),
-            marc_field_get_tag(field_b)
-        );
-
-    return tag_compare;
-}
-
-
-/*
- * Write a zero-padded decimal number using
- * exactly 'width' bytes.
- *
- * IMPORTANT:
- *
- * This function does NOT append a NUL terminator.
- *
- * ISO 2709 uses fixed-width numeric fields inside
- * the leader and directory, so writing a C-string
- * terminator here would corrupt the record.
- */
-static int write_ascii_number(
-    char *destination,
-    size_t width,
-    size_t value
-)
-{
-    size_t limit;
+    const char *tag;
+    size_t required;
+    size_t position;
+    size_t count;
     size_t i;
 
-    if (destination == NULL ||
-        width == 0)
+    if (field == NULL || buffer == NULL)
+    {
+        return -1;
+    }
+
+    tag =
+        marc_field_get_tag(field);
+
+    if (tag == NULL)
+    {
+        return -1;
+    }
+
+    required =
+        field_length(field);
+
+    if (required > buffer_size)
     {
         return -1;
     }
 
     /*
-     * Calculate 10^width.
-     */
-    limit = 1;
-
-    for (i = 0; i < width; i++)
-    {
-        if (limit > ((size_t)-1) / 10)
-        {
-            return -1;
-        }
-
-        limit *= 10;
-    }
-
-    /*
-     * Value must fit inside the requested
-     * number of decimal digits.
-     */
-    if (value >= limit)
-    {
-        return -1;
-    }
-
-    /*
-     * Fill from right to left.
-     */
-    for (i = width; i > 0; i--)
-    {
-        destination[i - 1] =
-            (char)('0' + (value % 10));
-
-        value /= 10;
-    }
-
-    /*
-     * DO NOT write destination[width] = '\0'.
+     * Control field.
      *
-     * The destination may be inside the
-     * fixed 24-byte MARC leader.
+     * Control fields contain only their value followed
+     * by the field terminator. They do NOT have indicators
+     * or subfield delimiters.
      */
-
-    return 0;
-}
-
-
-static int append_byte(
-    unsigned char *buffer,
-    size_t capacity,
-    size_t *position,
-    unsigned char value
-)
-{
-    if (buffer == NULL ||
-        position == NULL)
+    if (is_control_field(tag))
     {
-        return -1;
-    }
+        const char *value;
+        size_t value_length;
 
-    if (*position >= capacity)
-    {
-        return -1;
-    }
+        value =
+            marc_field_get_control_value(
+                field
+            );
 
-    buffer[*position] = value;
+        if (value == NULL)
+        {
+            buffer[0] =
+                MARC_FIELD_TERMINATOR;
 
-    (*position)++;
+            return 0;
+        }
 
-    return 0;
-}
+        value_length =
+            strlen(value);
 
-
-static int append_bytes(
-    unsigned char *buffer,
-    size_t capacity,
-    size_t *position,
-    const void *data,
-    size_t length
-)
-{
-    if (buffer == NULL ||
-        position == NULL)
-    {
-        return -1;
-    }
-
-    if (length > 0 &&
-        data == NULL)
-    {
-        return -1;
-    }
-
-    if (*position > capacity ||
-        length > capacity - *position)
-    {
-        return -1;
-    }
-
-    if (length > 0)
-    {
         memcpy(
-            buffer + *position,
-            data,
-            length
+            buffer,
+            value,
+            value_length
         );
+
+        buffer[value_length] =
+            MARC_FIELD_TERMINATOR;
+
+        return 0;
     }
 
-    *position += length;
+    /*
+     * Data field indicators.
+     */
+    buffer[0] =
+        (unsigned char)
+            marc_field_get_indicator1(field);
+
+    buffer[1] =
+        (unsigned char)
+            marc_field_get_indicator2(field);
+
+    position = 2;
+
+    count =
+        marc_field_get_subfield_count(
+            field
+        );
+
+    for (i = 0; i < count; i++)
+    {
+        MARC_Subfield *subfield;
+        const char *value;
+        char code;
+        size_t value_length;
+
+        subfield =
+            marc_field_get_subfield(
+                field,
+                (char)i
+            );
+
+        if (subfield == NULL)
+        {
+            continue;
+        }
+
+        code =
+            marc_subfield_get_code(
+                subfield
+            );
+
+        value =
+            marc_subfield_get_value(
+                subfield
+            );
+
+        buffer[position++] =
+            MARC_SUBFIELD_DELIMITER;
+
+        buffer[position++] =
+            (unsigned char)code;
+
+        if (value != NULL)
+        {
+            value_length =
+                strlen(value);
+
+            memcpy(
+                buffer + position,
+                value,
+                value_length
+            );
+
+            position += value_length;
+        }
+    }
+
+    buffer[position] =
+        MARC_FIELD_TERMINATOR;
 
     return 0;
 }
 
 
 /*
- * Parse a fixed-width ASCII decimal number.
+ * Stable insertion sort by MARC tag.
+ *
+ * qsort() is not guaranteed to preserve the order of
+ * equal elements. Repeated MARC fields must retain their
+ * original order.
  */
-static int parse_ascii_number(
-    const unsigned char *data,
-    size_t width,
-    size_t *value
+static void stable_sort_fields(
+    MARC_Field **fields,
+    size_t field_count
 )
 {
-    size_t result;
     size_t i;
 
-    if (data == NULL ||
-        value == NULL ||
-        width == 0)
+    for (i = 1; i < field_count; i++)
     {
-        return -1;
-    }
+        MARC_Field *current;
+        size_t j;
 
-    result = 0;
+        current = fields[i];
+        j = i;
 
-    for (i = 0; i < width; i++)
-    {
-        unsigned char character;
-
-        character = data[i];
-
-        if (character < '0' ||
-            character > '9')
+        while (
+            j > 0 &&
+            compare_fields(
+                fields[j - 1],
+                current
+            ) > 0
+        )
         {
-            return -1;
+            fields[j] =
+                fields[j - 1];
+
+            j--;
         }
 
-        /*
-         * Prevent overflow.
-         */
-        if (result >
-            (((size_t)-1) -
-             (size_t)(character - '0')) / 10)
-        {
-            return -1;
-        }
-
-        result =
-            result * 10 +
-            (size_t)(character - '0');
+        fields[j] = current;
     }
-
-    *value = result;
-
-    return 0;
 }
 
 
 /*
- * --------------------------------------------------------------------------
- * ISO 2709 writer
- * --------------------------------------------------------------------------
+ * Write one MARC 21 record in ISO 2709 format.
  */
-
 int marc_record_write(
     const MARC_Record *record,
-    FILE *stream
+    FILE *file
 )
 {
-    size_t field_count;
     MARC_Field **fields;
+
+    size_t field_count;
+    size_t i;
 
     size_t directory_length;
     size_t data_length;
     size_t base_address;
     size_t record_length;
 
-    size_t i;
-    size_t position;
+    size_t directory_position;
+    size_t data_position;
 
-    unsigned char *output;
+    unsigned char *directory;
+    unsigned char *data;
 
-    char leader[25];
+    unsigned char leader[MARC_LEADER_LENGTH];
 
-
-    /*
-     * Validate arguments.
-     */
-
-    if (record == NULL)
+    if (record == NULL || file == NULL)
     {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: record is NULL\n"
-        );
-
         return -1;
     }
-
-    if (stream == NULL)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: stream is NULL\n"
-        );
-
-        return -1;
-    }
-
-
-    /*
-     * Validate leader.
-     */
-
-    if (marc_record_get_leader(record) == NULL)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: leader is NULL\n"
-        );
-
-        return -1;
-    }
-
-    if (strlen(
-        marc_record_get_leader(record)
-    ) != 24)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: leader is not 24 bytes\n"
-        );
-
-        return -1;
-    }
-
-
-    /*
-     * Get fields.
-     */
 
     field_count =
-        marc_record_get_field_count(record);
+        marc_record_get_field_count(
+            record
+        );
 
     if (field_count == 0)
     {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: record contains no fields\n"
-        );
-
         return -1;
     }
 
-
-    /*
-     * Copy field pointers so that sorting
-     * does not modify the user's record.
-     */
-
-    fields = malloc(
-        sizeof(MARC_Field *) *
-        field_count
-    );
+    fields =
+        malloc(
+            sizeof(MARC_Field *) *
+            field_count
+        );
 
     if (fields == NULL)
     {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: failed allocating field list\n"
-        );
-
         return -1;
     }
-
 
     for (i = 0; i < field_count; i++)
     {
@@ -512,830 +412,292 @@ int marc_record_write(
 
         if (fields[i] == NULL)
         {
-            fprintf(
-                stderr,
-                "ISO2709 WRITE ERROR: field %zu is NULL\n",
-                i
-            );
-
             free(fields);
-
             return -1;
         }
     }
 
-
-    /*
-     * Stable insertion sort.
-     *
-     * qsort() is not required to preserve the relative order of
-     * equal elements. That matters for MARC because repeated fields
-     * with the same tag must retain their original order.
-     */
-    for (i = 1; i < field_count; i++)
-    {
-        MARC_Field *current;
-        size_t j;
-
-        current = fields[i];
-        j = i;
-
-        while (j > 0 &&
-               compare_fields(
-                   fields[j - 1],
-                   current
-               ) > 0)
-        {
-            fields[j] = fields[j - 1];
-            j--;
-        }
-
-        fields[j] = current;
-    }
-
+    stable_sort_fields(
+        fields,
+        field_count
+    );
 
     /*
      * Directory:
      *
-     * 12 bytes per field
-     * + 1 directory terminator
+     * 12 bytes per entry
+     * plus directory terminator.
      */
-
     directory_length =
-        (field_count * 12) + 1;
+        field_count *
+        MARC_DIRECTORY_ENTRY;
 
+    directory_length += 1;
 
     /*
-     * Calculate variable-field data length.
+     * Calculate field-data length.
      */
-
     data_length = 0;
 
     for (i = 0; i < field_count; i++)
     {
-        int length;
+        size_t length;
 
         length =
-            field_length(fields[i]);
-
-        if (length < 0)
-        {
-            fprintf(
-                stderr,
-                "ISO2709 WRITE ERROR: failed calculating field %zu (%s) length\n",
-                i,
-                marc_field_get_tag(fields[i])
+            field_length(
+                fields[i]
             );
 
+        if (length == 0)
+        {
             free(fields);
-
             return -1;
         }
 
-        data_length +=
-            (size_t)length;
+        data_length += length;
     }
-
 
     /*
      * Base address:
      *
-     * 24-byte leader
-     * + directory
+     * leader + directory + directory terminator.
      */
-
     base_address =
-        24 +
+        MARC_LEADER_LENGTH +
         directory_length;
 
-
     /*
-     * Complete record:
+     * Complete ISO 2709 record:
      *
      * leader
-     * + directory
-     * + variable fields
-     * + record terminator
+     * directory
+     * data
+     * record terminator
      */
-
     record_length =
         base_address +
         data_length +
         1;
 
-
-    fprintf(
-        stderr,
-        "ISO2709 WRITE DEBUG:\n"
-        "  fields          = %zu\n"
-        "  directory       = %zu\n"
-        "  base address     = %zu\n"
-        "  variable data    = %zu\n"
-        "  record length    = %zu\n",
-        field_count,
-        directory_length,
-        base_address,
-        data_length,
-        record_length
-    );
-
-
-    /*
-     * MARC21 supports record lengths up to
-     * five decimal digits.
-     */
-
-    if (record_length >
-        MARC_MAX_RECORD_LENGTH)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: record is too large\n"
+    directory =
+        malloc(
+            directory_length
         );
 
+    if (directory == NULL)
+    {
         free(fields);
-
         return -1;
     }
 
-
-    if (base_address >
-        MARC_MAX_FIELD_POSITION)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: base address is too large\n"
+    data =
+        malloc(
+            data_length
         );
 
+    if (data == NULL)
+    {
+        free(directory);
         free(fields);
-
         return -1;
     }
 
-
-    /*
-     * Allocate complete record.
-     */
-
-    output = malloc(
-        record_length
-    );
-
-    if (output == NULL)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: failed allocating record buffer\n"
-        );
-
-        free(fields);
-
-        return -1;
-    }
-
-
-    /*
-     * Copy original leader.
-     */
-
-    memcpy(
+    memset(
         leader,
-        marc_record_get_leader(record),
-        24
+        ' ',
+        sizeof(leader)
     );
 
-    leader[24] = '\0';
-
+    /*
+     * Record length.
+     */
+    snprintf(
+        (char *)leader,
+        6,
+        "%05lu",
+        (unsigned long)record_length
+    );
 
     /*
-     * Update leader.
-     *
-     * 00-04 = record length
-     * 10    = indicator count
-     * 11    = subfield code length
-     * 12-16 = base address
-     * 20-23 = entry map
+     * Basic MARC leader values.
      */
-
-    if (write_ascii_number(
-        leader + 0,
-        5,
-        record_length
-    ) != 0)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: failed encoding record length\n"
-        );
-
-        free(output);
-        free(fields);
-
-        return -1;
-    }
-
-
+    leader[5]  = 'n';
+    leader[6]  = 'a';
+    leader[7]  = ' ';
+    leader[8]  = ' ';
+    leader[9]  = 'a';
     leader[10] = '2';
     leader[11] = '2';
 
+    /*
+     * Base address of data.
+     *
+     * ISO 2709 allows five decimal digits here.
+     */
+    snprintf(
+        (char *)leader + 12,
+        6,
+        "%05lu",
+        (unsigned long)base_address
+    );
 
-    if (write_ascii_number(
-        leader + 12,
-        5,
-        base_address
-    ) != 0)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: failed encoding base address\n"
-        );
-
-        free(output);
-        free(fields);
-
-        return -1;
-    }
-
-
+    leader[17] = ' ';
+    leader[18] = ' ';
+    leader[19] = ' ';
     leader[20] = '4';
     leader[21] = '5';
     leader[22] = '0';
     leader[23] = '0';
 
+    directory_position = 0;
+    data_position = 0;
+
+    for (i = 0; i < field_count; i++)
+    {
+        const char *tag;
+        size_t length;
+
+        tag =
+            marc_field_get_tag(
+                fields[i]
+            );
+
+        if (tag == NULL)
+        {
+            free(data);
+            free(directory);
+            free(fields);
+            return -1;
+        }
+
+        length =
+            field_length(
+                fields[i]
+            );
+
+        /*
+         * Tag.
+         */
+        directory[directory_position++] =
+            (unsigned char)tag[0];
+
+        directory[directory_position++] =
+            (unsigned char)tag[1];
+
+        directory[directory_position++] =
+            (unsigned char)tag[2];
+
+        /*
+         * Field length: 4 digits.
+         */
+        snprintf(
+            (char *)directory +
+                directory_position,
+            5,
+            "%04lu",
+            (unsigned long)length
+        );
+
+        directory_position += 4;
+
+        /*
+         * Starting position: 5 digits.
+         */
+        snprintf(
+            (char *)directory +
+                directory_position,
+            6,
+            "%05lu",
+            (unsigned long)data_position
+        );
+
+        directory_position += 5;
+
+        if (encode_field(
+                fields[i],
+                data + data_position,
+                data_length - data_position
+            ) != 0)
+        {
+            free(data);
+            free(directory);
+            free(fields);
+            return -1;
+        }
+
+        data_position += length;
+    }
+
+    /*
+     * Directory terminator.
+     */
+    directory[directory_position] =
+        MARC_FIELD_TERMINATOR;
 
     /*
      * Write leader.
      */
-
-    position = 0;
-
-    if (append_bytes(
-        output,
-        record_length,
-        &position,
-        leader,
-        24
-    ) != 0)
+    if (fwrite(
+            leader,
+            1,
+            MARC_LEADER_LENGTH,
+            file
+        ) != MARC_LEADER_LENGTH)
     {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: failed writing leader\n"
-        );
-
-        free(output);
+        free(data);
+        free(directory);
         free(fields);
-
         return -1;
     }
 
-
     /*
-     * ----------------------------------------------------------------------
-     * Directory
-     * ----------------------------------------------------------------------
+     * Write directory.
      */
-
+    if (fwrite(
+            directory,
+            1,
+            directory_length,
+            file
+        ) != directory_length)
     {
-        size_t field_position;
-
-        field_position = 0;
-
-        for (i = 0; i < field_count; i++)
-        {
-            MARC_Field *field;
-            const char *tag;
-            int length;
-
-            char entry[12];
-
-            field = fields[i];
-
-            tag =
-                marc_field_get_tag(field);
-
-            length =
-                field_length(field);
-
-
-            if (tag == NULL ||
-                length < 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: invalid directory field\n"
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            /*
-             * Directory entry:
-             *
-             * 3 bytes tag
-             * 4 bytes field length
-             * 5 bytes starting position
-             */
-
-            memcpy(
-                entry,
-                tag,
-                3
-            );
-
-
-            if (write_ascii_number(
-                entry + 3,
-                4,
-                (size_t)length
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed encoding field %s length\n",
-                    tag
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            if (write_ascii_number(
-                entry + 7,
-                5,
-                field_position
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed encoding field %s position\n",
-                    tag
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            if (append_bytes(
-                output,
-                record_length,
-                &position,
-                entry,
-                12
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed writing directory entry for %s\n",
-                    tag
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            field_position +=
-                (size_t)length;
-        }
-
-
-        /*
-         * Directory terminator.
-         */
-
-        if (append_byte(
-            output,
-            record_length,
-            &position,
-            MARC_FIELD_TERMINATOR
-        ) != 0)
-        {
-            fprintf(
-                stderr,
-                "ISO2709 WRITE ERROR: failed writing directory terminator\n"
-            );
-
-            free(output);
-            free(fields);
-
-            return -1;
-        }
+        free(data);
+        free(directory);
+        free(fields);
+        return -1;
     }
 
-
     /*
-     * ----------------------------------------------------------------------
-     * Variable fields
-     * ----------------------------------------------------------------------
+     * Write field data.
      */
-
-    for (i = 0; i < field_count; i++)
+    if (fwrite(
+            data,
+            1,
+            data_length,
+            file
+        ) != data_length)
     {
-        MARC_Field *field;
-
-        field = fields[i];
-
-
-        /*
-         * Control field.
-         */
-
-        if (is_control_field(field))
-        {
-            const char *value;
-
-            value =
-                marc_field_get_control_value(
-                    field
-                );
-
-            if (value == NULL)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: control field %s has no value\n",
-                    marc_field_get_tag(field)
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            if (append_bytes(
-                output,
-                record_length,
-                &position,
-                value,
-                strlen(value)
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed writing control field %s\n",
-                    marc_field_get_tag(field)
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            if (append_byte(
-                output,
-                record_length,
-                &position,
-                MARC_FIELD_TERMINATOR
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed writing control field terminator\n"
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-        }
-
-
-        /*
-         * Data field.
-         */
-
-        else
-        {
-            size_t subfield_count;
-            size_t j;
-
-            char indicator1;
-            char indicator2;
-
-
-            indicator1 =
-                marc_field_get_indicator1(field);
-
-            indicator2 =
-                marc_field_get_indicator2(field);
-
-
-            /*
-             * Indicator 1.
-             */
-
-            if (append_byte(
-                output,
-                record_length,
-                &position,
-                (unsigned char)indicator1
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed writing indicator 1 for %s\n",
-                    marc_field_get_tag(field)
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            /*
-             * Indicator 2.
-             */
-
-            if (append_byte(
-                output,
-                record_length,
-                &position,
-                (unsigned char)indicator2
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed writing indicator 2 for %s\n",
-                    marc_field_get_tag(field)
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-
-
-            /*
-             * Subfields.
-             */
-
-            subfield_count =
-                marc_field_get_subfield_count(field);
-
-
-            for (j = 0;
-                 j < subfield_count;
-                 j++)
-            {
-                MARC_Subfield *subfield;
-                char code;
-                const char *value;
-
-
-                subfield =
-                    marc_field_get_subfield(
-                        field,
-                        j
-                    );
-
-                if (subfield == NULL)
-                {
-                    fprintf(
-                        stderr,
-                        "ISO2709 WRITE ERROR: NULL subfield %zu in %s\n",
-                        j,
-                        marc_field_get_tag(field)
-                    );
-
-                    free(output);
-                    free(fields);
-
-                    return -1;
-                }
-
-
-                code =
-                    marc_subfield_get_code(
-                        subfield
-                    );
-
-                value =
-                    marc_subfield_get_value(
-                        subfield
-                    );
-
-
-                if (code == '\0' ||
-                    value == NULL)
-                {
-                    fprintf(
-                        stderr,
-                        "ISO2709 WRITE ERROR: invalid subfield %zu in %s\n",
-                        j,
-                        marc_field_get_tag(field)
-                    );
-
-                    free(output);
-                    free(fields);
-
-                    return -1;
-                }
-
-
-                /*
-                 * Subfield delimiter.
-                 */
-
-                if (append_byte(
-                    output,
-                    record_length,
-                    &position,
-                    MARC_SUBFIELD_DELIMITER
-                ) != 0)
-                {
-                    fprintf(
-                        stderr,
-                        "ISO2709 WRITE ERROR: failed writing subfield delimiter\n"
-                    );
-
-                    free(output);
-                    free(fields);
-
-                    return -1;
-                }
-
-
-                /*
-                 * Subfield code.
-                 */
-
-                if (append_byte(
-                    output,
-                    record_length,
-                    &position,
-                    (unsigned char)code
-                ) != 0)
-                {
-                    fprintf(
-                        stderr,
-                        "ISO2709 WRITE ERROR: failed writing subfield code\n"
-                    );
-
-                    free(output);
-                    free(fields);
-
-                    return -1;
-                }
-
-
-                /*
-                 * Subfield value.
-                 */
-
-                if (append_bytes(
-                    output,
-                    record_length,
-                    &position,
-                    value,
-                    strlen(value)
-                ) != 0)
-                {
-                    fprintf(
-                        stderr,
-                        "ISO2709 WRITE ERROR: failed writing subfield value\n"
-                    );
-
-                    free(output);
-                    free(fields);
-
-                    return -1;
-                }
-            }
-
-
-            /*
-             * Field terminator.
-             */
-
-            if (append_byte(
-                output,
-                record_length,
-                &position,
-                MARC_FIELD_TERMINATOR
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 WRITE ERROR: failed writing data field terminator\n"
-                );
-
-                free(output);
-                free(fields);
-
-                return -1;
-            }
-        }
+        free(data);
+        free(directory);
+        free(fields);
+        return -1;
     }
-
 
     /*
      * Record terminator.
      */
-
-    if (append_byte(
-        output,
-        record_length,
-        &position,
-        MARC_RECORD_TERMINATOR
-    ) != 0)
+    if (fputc(
+            MARC_RECORD_TERMINATOR,
+            file
+        ) == EOF)
     {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: failed writing record terminator\n"
-        );
-
-        free(output);
+        free(data);
+        free(directory);
         free(fields);
-
         return -1;
     }
 
-
-    /*
-     * Verify final size.
-     */
-
-    if (position != record_length)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: generated %zu bytes, expected %zu\n",
-            position,
-            record_length
-        );
-
-        free(output);
-        free(fields);
-
-        return -1;
-    }
-
-
-    /*
-     * Write complete record.
-     */
-
-    if (fwrite(
-        output,
-        1,
-        record_length,
-        stream
-    ) != record_length)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: fwrite failed\n"
-        );
-
-        free(output);
-        free(fields);
-
-        return -1;
-    }
-
-
-    if (fflush(stream) != 0)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 WRITE ERROR: fflush failed\n"
-        );
-
-        free(output);
-        free(fields);
-
-        return -1;
-    }
-
-
-    fprintf(
-        stderr,
-        "ISO2709 WRITE SUCCESS: wrote %zu bytes\n",
-        record_length
-    );
-
-
-    free(output);
+    free(data);
+    free(directory);
     free(fields);
 
     return 0;
@@ -1343,445 +705,517 @@ int marc_record_write(
 
 
 /*
- * --------------------------------------------------------------------------
- * ISO 2709 reader
- * --------------------------------------------------------------------------
+ * Read one ISO 2709 MARC record.
  */
-
 int marc_record_read(
     MARC_Record *record,
-    FILE *stream
+    FILE *file
 )
 {
-    unsigned char leader[24];
+    unsigned char leader[MARC_LEADER_LENGTH];
+    unsigned char *buffer;
 
+    long file_size_long;
+
+    size_t file_size;
     size_t record_length;
     size_t base_address;
 
-    unsigned char *buffer;
-
-    size_t directory_start;
     size_t directory_end;
     size_t directory_position;
 
-
-    /*
-     * Validate arguments.
-     */
-
-    if (record == NULL ||
-        stream == NULL)
+    if (record == NULL || file == NULL)
     {
         return -1;
     }
 
-
     /*
-     * Read leader.
+     * Determine file size.
      */
+    if (fseek(
+            file,
+            0,
+            SEEK_END
+        ) != 0)
+    {
+        return -1;
+    }
+
+    file_size_long =
+        ftell(file);
+
+    if (file_size_long < 0)
+    {
+        return -1;
+    }
+
+    file_size =
+        (size_t)file_size_long;
+
+    if (fseek(
+            file,
+            0,
+            SEEK_SET
+        ) != 0)
+    {
+        return -1;
+    }
+
+    if (file_size <
+        MARC_LEADER_LENGTH)
+    {
+        fprintf(
+            stderr,
+            "ISO2709 READ: file too small for leader\n"
+        );
+
+        return -1;
+    }
 
     if (fread(
-        leader,
-        1,
-        24,
-        stream
-    ) != 24)
+            leader,
+            1,
+            MARC_LEADER_LENGTH,
+            file
+        ) != MARC_LEADER_LENGTH)
     {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: failed reading leader\n"
-        );
-
         return -1;
     }
-
 
     /*
-     * Parse record length from leader
-     * positions 00-04.
+     * Parse record length.
      */
-
-    if (parse_ascii_number(
-        leader,
-        5,
-        &record_length
-    ) != 0)
     {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: invalid record length\n"
+        char length_text[6];
+
+        memcpy(
+            length_text,
+            leader,
+            5
         );
 
-        return -1;
+        length_text[5] = '\0';
+
+        record_length =
+            (size_t)strtoul(
+                length_text,
+                NULL,
+                10
+            );
     }
-
-
-    if (record_length < 25 ||
-        record_length > MARC_MAX_RECORD_LENGTH)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: invalid record length %zu\n",
-            record_length
-        );
-
-        return -1;
-    }
-
 
     /*
-     * Allocate complete record.
+     * Parse base address.
      */
+    {
+        char base_text[6];
 
+        memcpy(
+            base_text,
+            leader + 12,
+            5
+        );
+
+        base_text[5] = '\0';
+
+        base_address =
+            (size_t)strtoul(
+                base_text,
+                NULL,
+                10
+            );
+    }
+
+    if (record_length <
+        MARC_LEADER_LENGTH + 1)
+    {
+        fprintf(
+            stderr,
+            "ISO2709 READ: invalid record length: %lu\n",
+            (unsigned long)record_length
+        );
+
+        return -1;
+    }
+
+    if (record_length > file_size)
+    {
+        fprintf(
+            stderr,
+            "ISO2709 READ: record length exceeds file size\n"
+        );
+
+        return -1;
+    }
+
+    if (base_address <
+        MARC_LEADER_LENGTH)
+    {
+        fprintf(
+            stderr,
+            "ISO2709 READ: invalid base address: %lu\n",
+            (unsigned long)base_address
+        );
+
+        return -1;
+    }
+
+    if (base_address >= record_length)
+    {
+        fprintf(
+            stderr,
+            "ISO2709 READ: base address outside record\n"
+        );
+
+        return -1;
+    }
+
+    /*
+     * Read the complete record.
+     */
     buffer =
         malloc(record_length);
 
     if (buffer == NULL)
     {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: failed allocating record buffer\n"
-        );
-
         return -1;
     }
 
-
-    memcpy(
-        buffer,
-        leader,
-        24
-    );
-
-
-    /*
-     * Read remaining bytes.
-     */
+    if (fseek(
+            file,
+            0,
+            SEEK_SET
+        ) != 0)
+    {
+        free(buffer);
+        return -1;
+    }
 
     if (fread(
-        buffer + 24,
-        1,
-        record_length - 24,
-        stream
-    ) != record_length - 24)
+            buffer,
+            1,
+            record_length,
+            file
+        ) != record_length)
     {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: failed reading complete record\n"
-        );
-
         free(buffer);
-
         return -1;
     }
 
-
     /*
-     * Verify record terminator.
+     * Record terminator.
      */
-
     if (buffer[record_length - 1] !=
         MARC_RECORD_TERMINATOR)
     {
         fprintf(
             stderr,
-            "ISO2709 READ ERROR: missing record terminator\n"
+            "ISO2709 READ: missing record terminator\n"
         );
 
         free(buffer);
-
         return -1;
     }
 
-
     /*
-     * Parse base address from leader positions 12-16.
+     * Directory terminator.
      */
-
-    if (parse_ascii_number(
-        buffer + 12,
-        5,
-        &base_address
-    ) != 0)
+    if (base_address <=
+        MARC_LEADER_LENGTH)
     {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: invalid base address\n"
-        );
-
         free(buffer);
-
         return -1;
     }
-
-
-    if (base_address < 25 ||
-        base_address >= record_length)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: base address %zu is invalid\n",
-            base_address
-        );
-
-        free(buffer);
-
-        return -1;
-    }
-
-
-    /*
-     * Restore leader.
-     */
-
-    {
-        char leader_string[25];
-
-        memcpy(
-            leader_string,
-            buffer,
-            24
-        );
-
-        leader_string[24] = '\0';
-
-        if (marc_record_set_leader(
-            record,
-            leader_string
-        ) != 0)
-        {
-            fprintf(
-                stderr,
-                "ISO2709 READ ERROR: failed restoring leader\n"
-            );
-
-            free(buffer);
-
-            return -1;
-        }
-    }
-
-
-    /*
-     * Directory.
-     *
-     * Directory begins immediately after the leader.
-     *
-     * The final byte before base_address is
-     * the directory terminator.
-     */
-
-    directory_start = 24;
 
     directory_end =
         base_address - 1;
-
 
     if (buffer[directory_end] !=
         MARC_FIELD_TERMINATOR)
     {
         fprintf(
             stderr,
-            "ISO2709 READ ERROR: missing directory terminator\n"
+            "ISO2709 READ: missing directory terminator\n"
         );
 
         free(buffer);
-
         return -1;
     }
 
+    if ((directory_end -
+         MARC_LEADER_LENGTH) %
+        MARC_DIRECTORY_ENTRY != 0)
+    {
+        fprintf(
+            stderr,
+            "ISO2709 READ: malformed directory length\n"
+        );
+
+        free(buffer);
+        return -1;
+    }
 
     directory_position =
-        directory_start;
-
+        MARC_LEADER_LENGTH;
 
     while (directory_position <
            directory_end)
     {
         char tag[4];
+        char length_text[5];
+        char position_text[6];
 
         size_t length;
         size_t field_position;
+        size_t field_start;
+        size_t field_end;
 
         MARC_Field *field;
 
-
         /*
-         * Every directory entry is exactly
-         * 12 bytes.
+         * Directory entry must fit.
          */
-
-        if (directory_position + 12 >
+        if (directory_position +
+                MARC_DIRECTORY_ENTRY >
             directory_end)
         {
-            fprintf(
-                stderr,
-                "ISO2709 READ ERROR: incomplete directory entry\n"
-            );
-
             free(buffer);
-
             return -1;
         }
-
 
         /*
          * Tag.
          */
+        tag[0] =
+            (char)buffer[
+                directory_position
+            ];
 
-        memcpy(
-            tag,
-            buffer + directory_position,
-            3
-        );
+        tag[1] =
+            (char)buffer[
+                directory_position + 1
+            ];
+
+        tag[2] =
+            (char)buffer[
+                directory_position + 2
+            ];
 
         tag[3] = '\0';
-
 
         /*
          * Field length.
          */
+        memcpy(
+            length_text,
+            buffer +
+                directory_position + 3,
+            4
+        );
 
-        if (parse_ascii_number(
-            buffer + directory_position + 3,
-            4,
-            &length
-        ) != 0)
-        {
-            fprintf(
-                stderr,
-                "ISO2709 READ ERROR: invalid length for field %s\n",
-                tag
+        length_text[4] = '\0';
+
+        length =
+            (size_t)strtoul(
+                length_text,
+                NULL,
+                10
             );
-
-            free(buffer);
-
-            return -1;
-        }
-
 
         /*
          * Field starting position.
          */
+        memcpy(
+            position_text,
+            buffer +
+                directory_position + 7,
+            5
+        );
 
-        if (parse_ascii_number(
-            buffer + directory_position + 7,
-            5,
-            &field_position
-        ) != 0)
-        {
-            fprintf(
-                stderr,
-                "ISO2709 READ ERROR: invalid position for field %s\n",
-                tag
+        position_text[5] = '\0';
+
+        field_position =
+            (size_t)strtoul(
+                position_text,
+                NULL,
+                10
             );
-
-            free(buffer);
-
-            return -1;
-        }
-
 
         if (length == 0)
         {
             fprintf(
                 stderr,
-                "ISO2709 READ ERROR: field %s has zero length\n",
+                "ISO2709 READ: zero-length field %s\n",
                 tag
             );
 
             free(buffer);
-
             return -1;
         }
 
+        field_start =
+            base_address +
+            field_position;
 
-        /*
-         * Verify that the complete field lies
-         * inside the variable-field area.
-         */
-
-        if (field_position >=
-            record_length - base_address)
+        if (field_start <
+                base_address ||
+            field_start >=
+                record_length)
         {
             fprintf(
                 stderr,
-                "ISO2709 READ ERROR: field %s position is out of bounds\n",
+                "ISO2709 READ: invalid field start for %s\n",
                 tag
             );
 
             free(buffer);
-
             return -1;
         }
-
 
         if (length >
-            (record_length - 1) -
-            (base_address + field_position))
+            record_length - field_start)
         {
             fprintf(
                 stderr,
-                "ISO2709 READ ERROR: field %s length is out of bounds\n",
+                "ISO2709 READ: field %s exceeds record\n",
                 tag
             );
 
             free(buffer);
-
             return -1;
         }
 
+        field_end =
+            field_start +
+            length -
+            1;
+
+        if (buffer[field_end] !=
+            MARC_FIELD_TERMINATOR)
+        {
+            fprintf(
+                stderr,
+                "ISO2709 READ: field %s missing terminator\n",
+                tag
+            );
+
+            free(buffer);
+            return -1;
+        }
 
         /*
-         * Create field.
+         * Debug information.
          */
+        fprintf(
+            stderr,
+            "ISO2709 READ DEBUG: field %s "
+            "start=%lu length=%lu end=%lu\n",
+            tag,
+            (unsigned long)field_start,
+            (unsigned long)length,
+            (unsigned long)field_end
+        );
 
-        if (tag[0] == '0' &&
-            tag[1] == '0' &&
-            tag[2] >= '1' &&
-            tag[2] <= '9')
+        /*
+         * Dump raw field bytes.
+         */
         {
-            field =
-                marc_field_create(
-                    tag,
-                    '\0',
-                    '\0'
+            size_t debug_position;
+
+            fprintf(
+                stderr,
+                "ISO2709 READ DEBUG: raw %s: ",
+                tag
+            );
+
+            for (
+                debug_position = field_start;
+                debug_position <
+                    field_start + length;
+                debug_position++
+            )
+            {
+                fprintf(
+                    stderr,
+                    "%02X ",
+                    (unsigned int)
+                        buffer[debug_position]
                 );
+            }
+
+            fprintf(
+                stderr,
+                "\n"
+            );
+        }
+
+        /*
+         * Control fields.
+         */
+        if (is_control_field(tag))
+        {
+            size_t value_length;
+            char *value;
+
+            value_length =
+                length - 1;
+
+            value =
+                malloc(
+                    value_length + 1
+                );
+
+            if (value == NULL)
+            {
+                free(buffer);
+                return -1;
+            }
+
+            memcpy(
+                value,
+                buffer + field_start,
+                value_length
+            );
+
+            value[value_length] =
+                '\0';
+
+            fprintf(
+                stderr,
+                "ISO2709 READ DEBUG: "
+                "control field %s "
+                "value=[%s]\n",
+                tag,
+                value
+            );
+
+            if (marc_record_set_control_field(
+                    record,
+                    tag,
+                    value
+                ) != 0)
+            {
+                free(value);
+                free(buffer);
+                return -1;
+            }
+
+            free(value);
         }
         else
         {
             char indicator1;
             char indicator2;
-
-            /*
-             * A data field must contain at least
-             * two indicator bytes plus terminator.
-             */
-
-            if (length < 3)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 READ ERROR: data field %s is too short\n",
-                    tag
-                );
-
-                free(buffer);
-
-                return -1;
-            }
+            size_t cursor;
 
             indicator1 =
                 (char)buffer[
-                    base_address +
-                    field_position
+                    field_start
                 ];
 
             indicator2 =
                 (char)buffer[
-                    base_address +
-                    field_position +
-                    1
+                    field_start + 1
                 ];
 
             field =
@@ -1790,167 +1224,25 @@ int marc_record_read(
                     indicator1,
                     indicator2
                 );
-        }
 
-
-        if (field == NULL)
-        {
-            fprintf(
-                stderr,
-                "ISO2709 READ ERROR: failed creating field %s\n",
-                tag
-            );
-
-            free(buffer);
-
-            return -1;
-        }
-
-
-        /*
-         * ------------------------------------------------------------------
-         * Control field
-         * ------------------------------------------------------------------
-         */
-
-        if (tag[0] == '0' &&
-            tag[1] == '0' &&
-            tag[2] >= '1' &&
-            tag[2] <= '9')
-        {
-            size_t value_length;
-            char *value;
-
-            /*
-             * Control fields must end in
-             * a field terminator.
-             */
-
-            if (buffer[
-                    base_address +
-                    field_position +
-                    length - 1
-                ] != MARC_FIELD_TERMINATOR)
+            if (field == NULL)
             {
-                fprintf(
-                    stderr,
-                    "ISO2709 READ ERROR: control field %s missing terminator\n",
-                    tag
-                );
-
-                marc_field_free(field);
                 free(buffer);
-
                 return -1;
             }
-
-
-            value_length =
-                length - 1;
-
-
-            value =
-                malloc(value_length + 1);
-
-            if (value == NULL)
-            {
-                marc_field_free(field);
-                free(buffer);
-
-                return -1;
-            }
-
-
-            memcpy(
-                value,
-                buffer +
-                    base_address +
-                    field_position,
-                value_length
-            );
-
-            value[value_length] =
-                '\0';
-
-
-            if (marc_field_set_control_value(
-                field,
-                value
-            ) != 0)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 READ ERROR: failed setting control field %s\n",
-                    tag
-                );
-
-                free(value);
-                marc_field_free(field);
-                free(buffer);
-
-                return -1;
-            }
-
-
-            free(value);
-        }
-
-
-        /*
-         * ------------------------------------------------------------------
-         * Data field
-         * ------------------------------------------------------------------
-         */
-
-        else
-        {
-            size_t field_start;
-            size_t field_end;
-            size_t cursor;
-
-
-            field_start =
-                base_address +
-                field_position;
-
-
-            /*
-             * Field length includes the field terminator.
-             */
-
-            field_end =
-                field_start +
-                length -
-                1;
-
-
-            /*
-             * Verify field terminator.
-             */
-
-            if (buffer[field_end] !=
-                MARC_FIELD_TERMINATOR)
-            {
-                fprintf(
-                    stderr,
-                    "ISO2709 READ ERROR: data field %s missing terminator\n",
-                    tag
-                );
-
-                marc_field_free(field);
-                free(buffer);
-
-                return -1;
-            }
-
 
             /*
              * Skip the two indicators.
              */
-
             cursor =
                 field_start + 2;
 
+            fprintf(
+                stderr,
+                "ISO2709 READ DEBUG: "
+                "parsing data field %s\n",
+                tag
+            );
 
             while (cursor < field_end)
             {
@@ -1961,94 +1253,104 @@ int marc_record_read(
 
                 char *value;
 
+                int add_result;
 
                 /*
-                 * Every subfield must begin with
-                 * the subfield delimiter.
+                 * Expect subfield delimiter.
                  */
-
                 if (buffer[cursor] !=
                     MARC_SUBFIELD_DELIMITER)
                 {
                     fprintf(
                         stderr,
-                        "ISO2709 READ ERROR: expected subfield delimiter in %s\n",
-                        tag
+                        "ISO2709 READ: field %s "
+                        "expected subfield delimiter "
+                        "at offset %lu, got 0x%02X\n",
+                        tag,
+                        (unsigned long)
+                            (cursor - field_start),
+                        (unsigned int)
+                            buffer[cursor]
                     );
 
                     marc_field_free(field);
                     free(buffer);
-
                     return -1;
                 }
 
+                fprintf(
+                    stderr,
+                    "ISO2709 READ DEBUG: %s "
+                    "subfield delimiter found "
+                    "at offset %lu\n",
+                    tag,
+                    (unsigned long)
+                        (cursor - field_start)
+                );
 
                 cursor++;
-
-
-                /*
-                 * Subfield code.
-                 */
 
                 if (cursor >= field_end)
                 {
                     fprintf(
                         stderr,
-                        "ISO2709 READ ERROR: missing subfield code in %s\n",
+                        "ISO2709 READ: field %s "
+                        "missing subfield code\n",
                         tag
                     );
 
                     marc_field_free(field);
                     free(buffer);
-
                     return -1;
                 }
-
 
                 code =
                     (char)buffer[cursor];
 
+                fprintf(
+                    stderr,
+                    "ISO2709 READ DEBUG: %s "
+                    "subfield code = [%c] "
+                    "(0x%02X)\n",
+                    tag,
+                    code,
+                    (unsigned int)
+                        (unsigned char)code
+                );
+
                 cursor++;
-
-
-                /*
-                 * Subfield value starts immediately
-                 * after the code.
-                 */
 
                 value_start =
                     cursor;
 
-
                 /*
-                 * Find the next subfield delimiter
-                 * or field terminator.
+                 * Read until the next subfield
+                 * delimiter or field terminator.
                  */
-
-                while (cursor < field_end &&
-                       buffer[cursor] !=
-                       MARC_SUBFIELD_DELIMITER)
+                while (
+                    cursor < field_end &&
+                    buffer[cursor] !=
+                        MARC_SUBFIELD_DELIMITER
+                )
                 {
                     cursor++;
                 }
-
 
                 value_length =
                     cursor -
                     value_start;
 
-
                 value =
-                    malloc(value_length + 1);
+                    malloc(
+                        value_length + 1
+                    );
 
                 if (value == NULL)
                 {
                     marc_field_free(field);
                     free(buffer);
-
                     return -1;
                 }
-
 
                 memcpy(
                     value,
@@ -2059,16 +1361,54 @@ int marc_record_read(
                 value[value_length] =
                     '\0';
 
-
-                if (marc_field_add_subfield(
-                    field,
+                fprintf(
+                    stderr,
+                    "ISO2709 READ DEBUG: %s "
+                    "subfield $%c "
+                    "value_length=%lu "
+                    "value=[%s]\n",
+                    tag,
                     code,
+                    (unsigned long)value_length,
                     value
-                ) != 0)
+                );
+
+                /*
+                 * Critical reconstruction step.
+                 */
+                add_result =
+                    marc_field_add_subfield(
+                        field,
+                        code,
+                        value
+                    );
+
+                fprintf(
+                    stderr,
+                    "ISO2709 READ DEBUG: %s "
+                    "add_subfield($%c) returned %d\n",
+                    tag,
+                    code,
+                    add_result
+                );
+
+                fprintf(
+                    stderr,
+                    "ISO2709 READ DEBUG: %s "
+                    "subfield count now %lu\n",
+                    tag,
+                    (unsigned long)
+                        marc_field_get_subfield_count(
+                            field
+                        )
+                );
+
+                if (add_result != 0)
                 {
                     fprintf(
                         stderr,
-                        "ISO2709 READ ERROR: failed adding subfield $%c to %s\n",
+                        "ISO2709 READ: failed to add "
+                        "subfield $%c to %s\n",
                         code,
                         tag
                     );
@@ -2076,68 +1416,56 @@ int marc_record_read(
                     free(value);
                     marc_field_free(field);
                     free(buffer);
-
                     return -1;
                 }
 
-
                 free(value);
             }
-        }
 
-
-        /*
-         * Add decoded field to record.
-         */
-
-        if (marc_record_add_field(
-            record,
-            field
-        ) != 0)
-        {
             fprintf(
                 stderr,
-                "ISO2709 READ ERROR: failed adding field %s to record\n",
-                tag
+                "ISO2709 READ DEBUG: field %s "
+                "finished with %lu subfields\n",
+                tag,
+                (unsigned long)
+                    marc_field_get_subfield_count(
+                        field
+                    )
             );
 
-            marc_field_free(field);
-            free(buffer);
+            /*
+             * Transfer ownership to the record.
+             */
+            if (marc_record_add_field(
+                    record,
+                    field
+                ) != 0)
+            {
+                fprintf(
+                    stderr,
+                    "ISO2709 READ: failed to add "
+                    "field %s to record\n",
+                    tag
+                );
 
-            return -1;
+                marc_field_free(field);
+                free(buffer);
+                return -1;
+            }
+
+            fprintf(
+                stderr,
+                "ISO2709 READ DEBUG: field %s "
+                "added to record\n",
+                tag
+            );
         }
 
-
-        directory_position += 12;
+        directory_position +=
+            MARC_DIRECTORY_ENTRY;
     }
-
-
-    /*
-     * The directory must contain at least
-     * complete 12-byte entries.
-     */
-
-    if ((directory_end -
-         directory_start) % 12 != 0)
-    {
-        fprintf(
-            stderr,
-            "ISO2709 READ ERROR: directory size is invalid\n"
-        );
-
-        free(buffer);
-
-        return -1;
-    }
-
 
     free(buffer);
-
-    fprintf(
-        stderr,
-        "ISO2709 READ SUCCESS: read %zu bytes\n",
-        record_length
-    );
 
     return 0;
 }
