@@ -120,7 +120,24 @@ tests/test_marc.exe
 
 These generated files are ignored by Git and are not intended to be committed to the repository.
 
-## Example
+## Examples
+
+The `examples/` directory contains small programs demonstrating
+how to use ViiewLib.
+
+### Basic MARC 21 usage
+
+`examples/basic_marc.c` demonstrates basic record, field, and
+subfield creation and access.
+
+### ISO 2709 encoding and decoding
+
+`examples/marc_iso2709.c` demonstrates writing a MARC 21 record
+to ISO 2709 format and reading it back into a `MARC_Record`.
+
+The examples are intentionally small and are intended to serve
+as both API demonstrations and starting points for applications
+using ViiewLib.
 
 Example usage documentation and API examples will be expanded as the public API stabilises.
 
