@@ -178,6 +178,80 @@ int main(void)
     );
     fclose(file);
 
+
+    /*
+     * Ownership transfer: once a field is added successfully, the record
+     * owns it and will release it when the record is freed.
+     */
+    record = marc_record_create();
+    field = marc_field_create("245", '1', '0');
+
+    if (record == NULL || field == NULL)
+    {
+        printf("FAIL: Could not create ownership test objects.\n");
+        marc_field_free(field);
+        marc_record_free(record);
+        return 1;
+    }
+
+    passed &= expect_result(
+        "Field ownership transferred on successful add",
+        marc_record_add_field(record, field),
+        MARC_SUCCESS
+    );
+
+    passed &= expect_result(
+        "Transferred field remains accessible through record",
+        (marc_record_get_field(record, 0) == field)
+            ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+        MARC_SUCCESS
+    );
+
+    passed &= expect_result(
+        "Transferred field retains subfield state",
+        (marc_field_add_subfield(field, 'a', "Ownership test") == MARC_SUCCESS &&
+         marc_field_get_subfield_count(field) == 1 &&
+         strcmp(marc_subfield_get_value(
+             marc_field_get_subfield(field, 0)
+         ), "Ownership test") == 0)
+            ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+        MARC_SUCCESS
+    );
+
+    /*
+     * The record owns field after successful insertion. Freeing the record
+     * therefore also releases the field and its subfields.
+     */
+    marc_record_free(record);
+
+    /*
+     * Standalone subfields remain caller-owned until explicitly freed.
+     */
+    {
+        MARC_Subfield *standalone = marc_subfield_create(
+            'a',
+            "Standalone ownership"
+        );
+
+        if (standalone == NULL)
+        {
+            printf("FAIL: Could not create standalone subfield.\n");
+            return 1;
+        }
+
+        passed &= expect_result(
+            "Standalone subfield created successfully",
+            (strcmp(
+                marc_subfield_get_value(standalone),
+                "Standalone ownership"
+            ) == 0)
+                ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+            MARC_SUCCESS
+        );
+
+        marc_subfield_free(standalone);
+    }
+
     marc_record_free(record);
 
     printf("\n==========================\n");
