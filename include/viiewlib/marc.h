@@ -35,9 +35,9 @@ typedef enum MARC_Result
  * API result conventions
  * --------------------------------------------------------------------------
  *
- * Functions that can fail return MARC_Result. Zero means success; non-zero
- * values identify the broad failure class. Pointer-returning constructors
- * and lookups continue to use NULL where appropriate.
+ * Functions that can fail return MARC_Result. MARC_SUCCESS means success;
+ * non-zero values identify the broad failure class. Pointer-returning
+ * constructors and lookups continue to use NULL where appropriate.
  *
  * The result codes are intentionally broad at this stage. The API refinement
  * work will keep their meanings stable while documenting ownership and
@@ -462,8 +462,8 @@ const char *marc_subfield_get_value(
  * Decoded fields are appended to the supplied record. The record is not
  * automatically cleared before reading.
  *
- * If an error occurs after one or more fields have been decoded, those
- * fields may remain in the record. The caller is responsible for deciding
+ * If an error occurs after the leader or one or more fields have been decoded,
+ * the record may be partially updated. The caller is responsible for deciding
  * whether to discard the partially populated record.
  *
  * Returns:
