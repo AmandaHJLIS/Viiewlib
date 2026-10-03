@@ -44,7 +44,7 @@ Current functionality includes:
 
 The current test suite covers record creation, control fields, variable fields, repeated fields, special characters, field lookup, ISO 2709 encoding and decoding, round-trip integrity, large field/subfield values, and malformed or truncated ISO 2709 input.
 
-The library currently builds and tests successfully with a standard C11 toolchain. Portability testing with other toolchains and platforms, including devkitPPC/Wii, is planned.
+The library currently builds and tests successfully with a standard C11 toolchain and has been cross-compiled successfully with devkitPPC for Wii on the `api-refinement` branch.
 
 ViiewLib remains under active development. API design, validation, error handling, documentation, standards coverage, interoperability, and additional MARC 21 / ISO 2709 functionality will continue to evolve.
 
