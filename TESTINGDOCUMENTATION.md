@@ -32,7 +32,7 @@ and then executed with:
 ./tests/test_marc
 ```
 
-The API regression suite is compiled as `tests/test_api_errors` and is run by `make test` alongside the core suite.
+The API regression suite is compiled as `tests/test_api_errors` and is run by `make test` alongside the core suite. The multi-record regression suite is compiled as `tests/test_multi_record` and is also run by `make test`.
 
 Generated executables, object files, static libraries, and `.mrc` test records are excluded from version control through `.gitignore`.
 
@@ -40,7 +40,7 @@ Generated executables, object files, static libraries, and `.mrc` test records a
 
 # Test Organisation
 
-The current test suite consists of two groups.
+The current test suite consists of three groups.
 
 ### Core MARC 21 / ISO 2709 suite
 
@@ -60,9 +60,19 @@ The API regression suite is contained in:
 tests/test_api_errors.c
 ```
 
-It covers invalid arguments, clean EOF, truncated input, malformed leader data, and state preservation after rejected operations.
+It covers invalid arguments, clean EOF, truncated input, malformed leader/base-address data, state preservation after rejected operations, ownership transfer, append semantics, and other public API contracts.
 
 The suite is intentionally separate from the core MARC round-trip tests so that public API contract failures are easy to identify.
+
+### Multi-record ISO 2709 suite
+
+The sequential-reading regression suite is contained in:
+
+```text
+tests/test_multi_record.c
+```
+
+It verifies that multiple ISO 2709 records can be read sequentially from one stream and that clean EOF is reported after the final record.
 
 ---
 
@@ -566,13 +576,15 @@ The current core suite passes all 18 tests contained in:
 tests/test_marc.c
 ```
 
-The API contract suite also passes all 13 current regression cases in:
+The API contract suite passes all 26 current regression cases in:
 
 ```text
 tests/test_api_errors.c
 ```
 
-The library also cross-compiles for Wii with devkitPPC with no compiler warnings on the current `api-refinement` branch.
+The multi-record regression suite also passes, including sequential decoding of two records and clean EOF after the final record.
+
+The library cross-compiles for Wii with devkitPPC with no compiler warnings on the current `main` branch, and the refined API has been exercised successfully by MarcViiew on real Wii hardware.
 
 Current single-record ISO 2709 robustness milestone:
 
@@ -599,52 +611,24 @@ Passing these tests does **not** imply complete MARC 21 or ISO 2709 standards co
 
 ---
 
-# Planned Tests
+# Completed Multi-Record Testing
 
-The next testing phase will extend ISO 2709 testing from individual records to files containing multiple records.
+## Two Consecutive Records
 
-## 32. Two Records
+**Test file:** `tests/test_multi_record.c`
 
-A file containing two valid ISO 2709 records will be used to verify:
+Two valid ISO 2709 records are written to the same stream and then read sequentially.
+
+The test verifies:
 
 * First record decoding
+* First record control/title data
 * Second record decoding
-* Correct stream position after the first record
-* Correct stream position after the second record
+* Second record control/title data
+* Correct sequential stream handling
+* Clean EOF after the final record
 
----
-
-## 33. Three Records
-
-A three-record ISO 2709 file will provide an additional sequential-reading test.
-
-The test will verify that each record can be decoded independently and in the correct order.
-
----
-
-## 34. Sequential EOF Handling
-
-The reader will be tested after the final record has been consumed.
-
-The expected behaviour is a clean end-of-file result rather than an incorrectly classified malformed record.
-
----
-
-## 35. Truncated Second Record
-
-A multi-record file will contain:
-
-```text
-Valid record 1
-Valid beginning of record 2
-Truncated record 2
-```
-
-The test should verify that:
-
-1. Record 1 is successfully decoded.
-2. Record 2 is detected as incomplete.
-3. The incomplete second record is rejected cleanly.
+The complete multi-record regression passes as part of `make test`.
 
 ---
 
@@ -776,7 +760,7 @@ Current status:
 | API contract regression    | PASS                |
 | Wii/devkitPPC cross-build  | PASS                |
 | Single-record robustness   | **COMPLETE**        |
-| Multi-record testing       | PLANNED             |
+| Multi-record testing       | **COMPLETE**        |
 | External interoperability  | PLANNED             |
 | Full standards conformance | **NOT YET CLAIMED** |
 
