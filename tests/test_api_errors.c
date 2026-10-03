@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "viiewlib/marc.h"
 
 static int expect_result(const char *name, MARC_Result actual, MARC_Result expected)
@@ -48,6 +49,14 @@ int main(void)
         MARC_ERROR_INVALID_ARGUMENT
     );
 
+    passed &= expect_result(
+        "Invalid add_field leaves field count unchanged",
+        (marc_record_add_field(record, NULL) == MARC_ERROR_INVALID_ARGUMENT &&
+         marc_record_get_field_count(record) == 0)
+            ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+        MARC_SUCCESS
+    );
+
     field = marc_field_create("245", '1', '0');
     if (field == NULL)
     {
@@ -60,6 +69,14 @@ int main(void)
         "Control value rejected on data field",
         marc_field_set_control_value(field, "invalid"),
         MARC_ERROR_INVALID_ARGUMENT
+    );
+
+    passed &= expect_result(
+        "Invalid control value leaves data field unchanged",
+        (marc_field_get_control_value(field) == NULL &&
+         marc_field_get_subfield_count(field) == 0)
+            ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+        MARC_SUCCESS
     );
 
     passed &= expect_result(
