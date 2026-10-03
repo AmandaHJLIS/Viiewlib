@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "viiewlib/marc.h"
 
@@ -177,6 +178,292 @@ int main(void)
         MARC_ERROR_MALFORMED
     );
     fclose(file);
+
+    /*
+     * Read-state behaviour: a malformed later field may leave earlier
+     * decoded fields in the destination record.
+     */
+    {
+        MARC_Record *source = marc_record_create();
+        MARC_Record *loaded = marc_record_create();
+        MARC_Field *first = NULL;
+        MARC_Field *second = NULL;
+        unsigned char *raw = NULL;
+        long raw_size;
+        size_t raw_length;
+        size_t last_field_terminator = 0;
+        int found_terminator = 0;
+
+        if (source == NULL || loaded == NULL)
+        {
+            printf("FAIL: Could not create partial-read test records.\n");
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        first = marc_field_create("245", '1', '0');
+        second = marc_field_create("500", ' ', ' ');
+        if (first == NULL || second == NULL)
+        {
+            printf("FAIL: Could not create partial-read test fields.\n");
+            marc_field_free(first);
+            marc_field_free(second);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        if (marc_field_add_subfield(first, 'a', "First field") != MARC_SUCCESS ||
+            marc_field_add_subfield(second, 'a', "Second field") != MARC_SUCCESS ||
+            marc_record_add_field(source, first) != MARC_SUCCESS ||
+            marc_record_add_field(source, second) != MARC_SUCCESS)
+        {
+            printf("FAIL: Could not construct partial-read test record.\n");
+            /*
+             * Successful additions transfer ownership, so only free the
+             * standalone fields here.
+             */
+            if (marc_record_get_field_count(source) == 0)
+            {
+                marc_field_free(first);
+                marc_field_free(second);
+            }
+            else if (marc_record_get_field_count(source) == 1)
+            {
+                marc_field_free(second);
+            }
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        file = tmpfile();
+        if (file == NULL)
+        {
+            printf("FAIL: Could not create partial-read fixture.\n");
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        if (marc_record_write(source, file) != MARC_SUCCESS)
+        {
+            printf("FAIL: Could not write partial-read fixture.\n");
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        if (fseek(file, 0, SEEK_END) != 0)
+        {
+            printf("FAIL: Could not seek partial-read fixture.\n");
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        raw_size = ftell(file);
+        if (raw_size <= 0)
+        {
+            printf("FAIL: Could not size partial-read fixture.\n");
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        raw_length = (size_t)raw_size;
+        raw = malloc(raw_length);
+        if (raw == NULL)
+        {
+            printf("FAIL: Could not allocate partial-read fixture buffer.\n");
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        rewind(file);
+
+        if (fread(raw, 1, raw_length, file) != raw_length)
+        {
+            printf("FAIL: Could not read partial-read fixture.\n");
+            free(raw);
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        /*
+         * Replace the final field terminator before the record terminator.
+         * The first field remains structurally valid, while the second
+         * field must be rejected when decoded.
+         */
+        for (size_t i = raw_length - 1; i > 0; --i)
+        {
+            if (raw[i - 1] == 0x1E)
+            {
+                last_field_terminator = i - 1;
+                found_terminator = 1;
+                break;
+            }
+        }
+
+        if (!found_terminator)
+        {
+            printf("FAIL: Could not locate second field terminator.\n");
+            free(raw);
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        raw[last_field_terminator] = 'X';
+
+        freopen(NULL, "w+b", file);
+        if (fwrite(raw, 1, raw_length, file) != raw_length)
+        {
+            printf("FAIL: Could not rewrite partial-read fixture.\n");
+            free(raw);
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        rewind(file);
+
+        passed &= expect_result(
+            "Malformed later field reports malformed",
+            marc_record_read(loaded, file),
+            MARC_ERROR_MALFORMED
+        );
+
+        passed &= expect_result(
+            "Earlier valid field remains after failed read",
+            (marc_record_get_field_count(loaded) == 1 &&
+             strcmp(
+                 marc_subfield_get_value(
+                     marc_field_get_subfield(
+                         marc_record_get_field(loaded, 0),
+                         0
+                     )
+                 ),
+                 "First field"
+             ) == 0)
+                ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+            MARC_SUCCESS
+        );
+
+        free(raw);
+        fclose(file);
+        marc_record_free(source);
+        marc_record_free(loaded);
+    }
+
+    /*
+     * A failed read does not clear fields that were already present in the
+     * destination record.
+     */
+    {
+        MARC_Record *source = marc_record_create();
+        MARC_Record *loaded = marc_record_create();
+        MARC_Field *source_field = NULL;
+        MARC_Field *existing_field = NULL;
+
+        if (source == NULL || loaded == NULL)
+        {
+            printf("FAIL: Could not create preservation test records.\n");
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        source_field = marc_field_create("245", '1', '0');
+        existing_field = marc_field_create("500", ' ', ' ');
+
+        if (source_field == NULL || existing_field == NULL ||
+            marc_field_add_subfield(source_field, 'a', "Loaded") != MARC_SUCCESS ||
+            marc_field_add_subfield(existing_field, 'a', "Existing") != MARC_SUCCESS ||
+            marc_record_add_field(source, source_field) != MARC_SUCCESS ||
+            marc_record_add_field(loaded, existing_field) != MARC_SUCCESS)
+        {
+            printf("FAIL: Could not construct preservation test records.\n");
+            if (source_field != NULL &&
+                marc_record_get_field_count(source) == 0)
+            {
+                marc_field_free(source_field);
+            }
+            if (existing_field != NULL &&
+                marc_record_get_field_count(loaded) == 0)
+            {
+                marc_field_free(existing_field);
+            }
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        file = tmpfile();
+        if (file == NULL)
+        {
+            printf("FAIL: Could not create preservation fixture.\n");
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        if (marc_record_write(source, file) != MARC_SUCCESS)
+        {
+            printf("FAIL: Could not write preservation fixture.\n");
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        rewind(file);
+
+        passed &= expect_result(
+            "Successful read appends to existing record",
+            marc_record_read(loaded, file),
+            MARC_SUCCESS
+        );
+
+        passed &= expect_result(
+            "Existing field preserved when reading",
+            (marc_record_get_field_count(loaded) == 2 &&
+             strcmp(
+                 marc_field_get_tag(
+                     marc_record_get_field(loaded, 0)
+                 ),
+                 "500"
+             ) == 0)
+                ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+            MARC_SUCCESS
+        );
+
+        passed &= expect_result(
+            "Decoded field appended after existing field",
+            (strcmp(
+                 marc_field_get_tag(
+                     marc_record_get_field(loaded, 1)
+                 ),
+                 "245"
+             ) == 0)
+                ? MARC_SUCCESS : MARC_ERROR_INVALID_ARGUMENT,
+            MARC_SUCCESS
+        );
+
+        fclose(file);
+        marc_record_free(source);
+        marc_record_free(loaded);
+    }
 
     marc_record_free(record);
 
