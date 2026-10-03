@@ -163,7 +163,7 @@ const MARC_Field *field
 {
 if (field == NULL)
 {
-return MARC_SUCCESS;
+return 0;
 }
 
 return is_control_tag(
