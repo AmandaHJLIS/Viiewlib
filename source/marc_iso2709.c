@@ -496,7 +496,7 @@ MARC_Result marc_record_write(
     if (written != record_length)
         return MARC_ERROR_IO;
 
-    return 0;
+    return MARC_SUCCESS;
 }
 
 
@@ -506,7 +506,7 @@ MARC_Result marc_record_read(
 )
 {
     if (record == NULL || stream == NULL)
-        return MARC_ERROR_MALFORMED;
+        return MARC_ERROR_INVALID_ARGUMENT;
 
     /*
      * --------------------------------------------------------
@@ -569,7 +569,7 @@ MARC_Result marc_record_read(
         record_length_long < MARC_LEADER_LENGTH ||
         record_length_long > 99999)
     {
-        return MARC_ERROR_ALLOCATION;
+        return MARC_ERROR_MALFORMED;
     }
 
     size_t record_length =
@@ -621,7 +621,7 @@ MARC_Result marc_record_read(
         malloc(remaining);
 
     if (buffer == NULL)
-        return MARC_ERROR_MALFORMED;
+        return MARC_ERROR_ALLOCATION;
 
     size_t bytes_read =
         fread(
@@ -634,7 +634,7 @@ MARC_Result marc_record_read(
     if (bytes_read != remaining)
     {
         free(buffer);
-        return MARC_ERROR_MALFORMED;
+        return ferror(stream) ? MARC_ERROR_IO : MARC_ERROR_TRUNCATED;
     }
 
     /*
@@ -655,9 +655,6 @@ MARC_Result marc_record_read(
      * The directory occupies the space between the leader and
      * the base address, ending with a field terminator.
      */
-    size_t directory_offset =
-        MARC_LEADER_LENGTH;
-
     size_t directory_length =
         base_address -
         MARC_LEADER_LENGTH;
@@ -962,7 +959,7 @@ MARC_Result marc_record_read(
             {
                 marc_field_free(field);
                 free(buffer);
-                return MARC_ERROR_ALLOCATION;
+                return MARC_ERROR_MALFORMED;
             }
 
             ++offset;
@@ -1023,16 +1020,19 @@ MARC_Result marc_record_read(
              * marc_field_add_subfield() creates the
              * MARC_Subfield internally.
              */
-            if (marc_field_add_subfield(
+            MARC_Result subfield_result =
+                marc_field_add_subfield(
                     field,
                     code,
                     value
-                ) != 0)
+                );
+
+            if (subfield_result != MARC_SUCCESS)
             {
                 free(value);
                 marc_field_free(field);
                 free(buffer);
-                return MARC_ERROR_ALLOCATION;
+                return subfield_result;
             }
 
             free(value);
@@ -1041,14 +1041,17 @@ MARC_Result marc_record_read(
         /*
          * Transfer the field to the record.
          */
-        if (marc_record_add_field(
+        MARC_Result field_result =
+            marc_record_add_field(
                 record,
                 field
-            ) != 0)
+            );
+
+        if (field_result != MARC_SUCCESS)
         {
             marc_field_free(field);
             free(buffer);
-            return MARC_ERROR_ALLOCATION;
+            return field_result;
         }
     }
 
