@@ -4,11 +4,11 @@
 
 ViiewLib is a lightweight, portable C library for working with MARC 21 records and ISO 2709-encoded bibliographic data. It is designed to provide a simple API with minimal dependencies for applications that need to read, manipulate, validate, and write MARC records.
 
-## 0.7.0-beta API
+## API Refinement
 
-The refined public API developed during the 0.6.0-beta cycle has now been reviewed, tested, and merged into `main`. MarcViiew uses this API in its 0.7.0-beta integration.
+The public API refinement developed during the 0.6.0-beta development cycle has been reviewed, tested, and merged into `main`. MarcViiew uses this refined API in its 0.7.0-beta integration.
 
-The refinement includes consistent `MARC_Result` return values for fallible public operations, clearer distinctions between invalid arguments, allocation failures, I/O failures, malformed input, truncation, and clean EOF, and documented ownership and record-state behaviour.
+The refinement focuses on consistent return-value and error semantics, explicit API contracts, predictable ownership and record-state behaviour, clearer documentation, and expanded regression testing while preserving existing MARC 21 and ISO 2709 behaviour.
 
 ## Current Status
 
