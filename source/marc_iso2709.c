@@ -205,13 +205,13 @@ static void stable_sort_fields(
 }
 
 
-int marc_record_write(
+MARC_Result marc_record_write(
     const MARC_Record *record,
     FILE *stream
 )
 {
     if (record == NULL || stream == NULL)
-        return -1;
+        return MARC_ERROR_INVALID_ARGUMENT;
 
     size_t field_count =
         marc_record_get_field_count(record);
@@ -225,7 +225,7 @@ int marc_record_write(
         );
 
         if (fields == NULL)
-            return -1;
+            return MARC_ERROR_ALLOCATION;
 
         for (size_t i = 0; i < field_count; ++i)
         {
@@ -289,7 +289,7 @@ int marc_record_write(
         base_address > 99999)
     {
         free(fields);
-        return -1;
+        return MARC_ERROR_INVALID_ARGUMENT;
     }
 
     unsigned char *buffer =
@@ -298,7 +298,7 @@ int marc_record_write(
     if (buffer == NULL)
     {
         free(fields);
-        return -1;
+        return MARC_ERROR_ALLOCATION;
     }
 
     memset(
@@ -460,7 +460,7 @@ int marc_record_write(
         {
             free(buffer);
             free(fields);
-            return -1;
+            return MARC_ERROR_IO;
         }
 
         data_offset += encoded;
@@ -494,19 +494,19 @@ int marc_record_write(
     free(fields);
 
     if (written != record_length)
-        return -1;
+        return MARC_ERROR_IO;
 
     return 0;
 }
 
 
-int marc_record_read(
+MARC_Result marc_record_read(
     MARC_Record *record,
     FILE *stream
 )
 {
     if (record == NULL || stream == NULL)
-        return -1;
+        return MARC_ERROR_MALFORMED;
 
     /*
      * --------------------------------------------------------
@@ -530,13 +530,16 @@ int marc_record_read(
      * Clean EOF.
      */
     if (leader_read == 0 && feof(stream))
-        return -1;
+        return MARC_ERROR_EOF;
+
+    if (leader_read == 0 && ferror(stream))
+        return MARC_ERROR_IO;
 
     /*
      * Partial leader.
      */
     if (leader_read != MARC_LEADER_LENGTH)
-        return -1;
+        return ferror(stream) ? MARC_ERROR_IO : MARC_ERROR_TRUNCATED;
 
     /*
      * Parse five-digit record length.
@@ -566,7 +569,7 @@ int marc_record_read(
         record_length_long < MARC_LEADER_LENGTH ||
         record_length_long > 99999)
     {
-        return -1;
+        return MARC_ERROR_ALLOCATION;
     }
 
     size_t record_length =
@@ -600,7 +603,7 @@ int marc_record_read(
         base_address_long < MARC_LEADER_LENGTH ||
         base_address_long >= (long)record_length)
     {
-        return -1;
+        return ferror(stream) ? MARC_ERROR_IO : MARC_ERROR_TRUNCATED;
     }
 
     size_t base_address =
@@ -618,7 +621,7 @@ int marc_record_read(
         malloc(remaining);
 
     if (buffer == NULL)
-        return -1;
+        return MARC_ERROR_MALFORMED;
 
     size_t bytes_read =
         fread(
@@ -631,7 +634,7 @@ int marc_record_read(
     if (bytes_read != remaining)
     {
         free(buffer);
-        return -1;
+        return MARC_ERROR_MALFORMED;
     }
 
     /*
@@ -641,7 +644,7 @@ int marc_record_read(
         MARC_RECORD_TERMINATOR)
     {
         free(buffer);
-        return -1;
+        return MARC_ERROR_MALFORMED;
     }
 
     /*
@@ -662,14 +665,14 @@ int marc_record_read(
     if (directory_length < 1)
     {
         free(buffer);
-        return -1;
+        return MARC_ERROR_MALFORMED;
     }
 
     if (buffer[directory_length - 1] !=
         MARC_FIELD_TERMINATOR)
     {
         free(buffer);
-        return -1;
+        return MARC_ERROR_MALFORMED;
     }
 
     size_t directory_data_length =
@@ -679,7 +682,7 @@ int marc_record_read(
             MARC_DIRECTORY_ENTRY != 0)
     {
         free(buffer);
-        return -1;
+        return MARC_ERROR_MALFORMED;
     }
 
     size_t field_count =
@@ -704,13 +707,15 @@ int marc_record_read(
     leader_text[MARC_LEADER_LENGTH] =
         '\0';
 
-    if (marc_record_set_leader(
-            record,
-            leader_text
-        ) != 0)
+    MARC_Result leader_result = marc_record_set_leader(
+        record,
+        leader_text
+    );
+
+    if (leader_result != MARC_SUCCESS)
     {
         free(buffer);
-        return -1;
+        return leader_result;
     }
 
     /*
@@ -778,7 +783,7 @@ int marc_record_read(
             field_length_long < 1)
         {
             free(buffer);
-            return -1;
+            return MARC_ERROR_MALFORMED;
         }
 
         size_t current_field_length =
@@ -814,7 +819,7 @@ int marc_record_read(
             field_position_long < 0)
         {
             free(buffer);
-            return -1;
+            return MARC_ERROR_MALFORMED;
         }
 
         size_t current_field_position =
@@ -832,7 +837,7 @@ int marc_record_read(
             field_data_absolute >= record_length)
         {
             free(buffer);
-            return -1;
+            return MARC_ERROR_MALFORMED;
         }
 
         size_t field_data_offset =
@@ -847,7 +852,7 @@ int marc_record_read(
                 remaining - field_data_offset)
         {
             free(buffer);
-            return -1;
+            return MARC_ERROR_MALFORMED;
         }
 
         /*
@@ -860,7 +865,7 @@ int marc_record_read(
             ] != MARC_FIELD_TERMINATOR)
         {
             free(buffer);
-            return -1;
+            return MARC_ERROR_ALLOCATION;
         }
 
         /*
@@ -879,7 +884,7 @@ int marc_record_read(
             if (value == NULL)
             {
                 free(buffer);
-                return -1;
+                return MARC_ERROR_ALLOCATION;
             }
 
             memcpy(
@@ -903,7 +908,7 @@ int marc_record_read(
             if (result != 0)
             {
                 free(buffer);
-                return -1;
+                return MARC_ERROR_ALLOCATION;
             }
 
             continue;
@@ -917,7 +922,7 @@ int marc_record_read(
         if (current_field_length < 3)
         {
             free(buffer);
-            return -1;
+            return MARC_ERROR_ALLOCATION;
         }
 
         size_t data_length =
@@ -957,7 +962,7 @@ int marc_record_read(
             {
                 marc_field_free(field);
                 free(buffer);
-                return -1;
+                return MARC_ERROR_ALLOCATION;
             }
 
             ++offset;
