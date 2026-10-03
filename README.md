@@ -37,7 +37,7 @@ The current test suite covers record creation, control fields, variable fields, 
 
 The library builds and tests successfully with a standard C11 toolchain and cross-compiles for Wii with devkitPPC. The refined API has also been integrated and tested on real Nintendo Wii hardware through MarcViiew.
 
-ViiewLib remains under active development. API design, validation, error handling, documentation, standards coverage, interoperability, and additional MARC 21 / ISO 2709 functionality will continue to evolve.
+ViiewLib remains under active development. Current development focuses on MARC 21 / ISO 2709 validation and interoperability, API documentation and examples, additional regression coverage, and standards-related edge cases. The refined public API itself is now the main baseline rather than an experimental branch.
 
 ViiewLib does **not** currently claim complete MARC 21 or ISO 2709 standards conformance or production readiness.
 
