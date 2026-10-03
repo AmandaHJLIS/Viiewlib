@@ -192,7 +192,7 @@ int main(void)
      * than the bytes available in the stream. This is truncation rather
      * than malformed structure because the input ends prematurely.
      */
-    fputs("00030nam a2200000   4500", file);
+    fputs("00030nam a2200024   4500", file);
     rewind(file);
 
     passed &= expect_result(
