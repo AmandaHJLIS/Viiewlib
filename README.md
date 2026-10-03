@@ -4,24 +4,15 @@
 
 ViiewLib is a lightweight, portable C library for working with MARC 21 records and ISO 2709-encoded bibliographic data. It is designed to provide a simple API with minimal dependencies for applications that need to read, manipulate, validate, and write MARC records.
 
-## API Refinement Branch
+## 0.7.0-beta API
 
-This branch (`api-refinement`) is the experimental development branch for the ViiewLib 0.6.0-beta API refinement work. It is based directly on `main` and is used to audit and improve the public C API before changes are considered for the main branch.
+The refined public API developed during the 0.6.0-beta cycle has now been reviewed, tested, and merged into `main`. MarcViiew uses this API in its 0.7.0-beta integration.
 
-The refinement work focuses on:
-
-* consistent return-value and error semantics
-* explicit API contracts for invalid arguments, malformed data, EOF, I/O failures, and allocation failures
-* predictable ownership and record-state behaviour on failed operations
-* clearer documentation of public functions
-* expanded regression and API-misuse tests
-* preserving existing MARC 21 and ISO 2709 behaviour while the API is cleaned up
-
-Changes on this branch are experimental and should not be treated as the stable public API until reviewed and merged into `main`.
+The refinement includes consistent `MARC_Result` return values for fallible public operations, clearer distinctions between invalid arguments, allocation failures, I/O failures, malformed input, truncation, and clean EOF, and documented ownership and record-state behaviour.
 
 ## Current Status
 
-**Early-stage functional / active development.**
+**Functional beta / active development.**
 
 ViiewLib is a lightweight C API for working with MARC 21 records and ISO 2709 data.
 
@@ -44,7 +35,7 @@ Current functionality includes:
 
 The current test suite covers record creation, control fields, variable fields, repeated fields, special characters, field lookup, ISO 2709 encoding and decoding, round-trip integrity, large field/subfield values, and malformed or truncated ISO 2709 input.
 
-The library currently builds and tests successfully with a standard C11 toolchain and has been cross-compiled successfully with devkitPPC for Wii on the `api-refinement` branch.
+The library builds and tests successfully with a standard C11 toolchain and cross-compiles for Wii with devkitPPC. The refined API has also been integrated and tested on real Nintendo Wii hardware through MarcViiew.
 
 ViiewLib remains under active development. API design, validation, error handling, documentation, standards coverage, interoperability, and additional MARC 21 / ISO 2709 functionality will continue to evolve.
 
@@ -112,11 +103,14 @@ The testing documentation includes:
 * Planned tests
 * Future interoperability testing
 
-The current testing milestone is:
+The current testing milestones include:
 
-**Single-record ISO 2709 robustness testing: complete.**
+* Single-record ISO 2709 robustness testing: complete
+* API contract/error regression testing: complete
+* Multi-record sequential reading and EOF testing: complete
+* Wii/devkitPPC cross-build: complete
 
-Planned testing includes multi-record ISO 2709 files, sequential record reading, EOF handling, truncated multi-record files, and interoperability with externally generated MARC data.
+Further interoperability and standards-coverage testing remains planned.
 
 ## Build Outputs
 
@@ -154,7 +148,7 @@ The examples are intentionally small and are intended to serve
 as both API demonstrations and starting points for applications
 using ViiewLib.
 
-Example usage documentation and API examples will be expanded as the public API stabilises.
+Example usage documentation and API examples will continue to expand as the library's public API evolves.
 
 ## Project Structure
 
