@@ -178,6 +178,7 @@ int main(void)
     );
     fclose(file);
 
+    marc_record_free(record);
 
     /*
      * Ownership transfer: once a field is added successfully, the record
@@ -251,8 +252,6 @@ int main(void)
 
         marc_subfield_free(standalone);
     }
-
-    marc_record_free(record);
 
     printf("\n==========================\n");
 
