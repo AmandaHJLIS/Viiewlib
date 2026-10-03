@@ -23,12 +23,12 @@ const char *tag
 {
 if (tag == NULL)
 {
-return 0;
+return MARC_SUCCESS;
 }
 
 if (strlen(tag) != 3)
 {
-    return 0;
+    return MARC_SUCCESS;
 }
 
 return (
@@ -163,7 +163,7 @@ const MARC_Field *field
 {
 if (field == NULL)
 {
-return 0;
+return MARC_SUCCESS;
 }
 
 return is_control_tag(
@@ -212,7 +212,7 @@ free(
 
 field->control_value = new_value;
 
-return 0;
+return MARC_SUCCESS;
 
 }
 
@@ -292,7 +292,7 @@ field->subfields[
 
 field->subfield_count++;
 
-return 0;
+return MARC_SUCCESS;
 
 }
 
@@ -302,7 +302,7 @@ const MARC_Field *field
 {
 if (field == NULL)
 {
-return 0;
+return MARC_SUCCESS;
 }
 
 return field->subfield_count;
