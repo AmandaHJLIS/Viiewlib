@@ -121,7 +121,7 @@ const char *marc_record_get_leader(
     return record->leader;
 }
 
-int marc_record_set_leader(
+MARC_Result marc_record_set_leader(
     MARC_Record *record,
     const char *leader
 )
@@ -129,12 +129,12 @@ int marc_record_set_leader(
     if (record == NULL ||
         leader == NULL)
     {
-        return -1;
+        return MARC_ERROR_INVALID_ARGUMENT;
     }
 
     if (strlen(leader) != 24)
     {
-        return -1;
+        return MARC_ERROR_INVALID_ARGUMENT;
     }
 
     memcpy(
@@ -148,7 +148,7 @@ int marc_record_set_leader(
     return 0;
 }
 
-int marc_record_add_field(
+MARC_Result marc_record_add_field(
     MARC_Record *record,
     MARC_Field *field
 )
@@ -158,7 +158,7 @@ int marc_record_add_field(
     if (record == NULL ||
         field == NULL)
     {
-        return -1;
+        return MARC_ERROR_INVALID_ARGUMENT;
     }
 
     new_fields = realloc(
@@ -169,7 +169,7 @@ int marc_record_add_field(
 
     if (new_fields == NULL)
     {
-        return -1;
+        return MARC_ERROR_ALLOCATION;
     }
 
     record->fields = new_fields;
@@ -213,7 +213,7 @@ MARC_Field *marc_record_get_field(
     return record->fields[index];
 }
 
-int marc_record_set_control_field(
+MARC_Result marc_record_set_control_field(
     MARC_Record *record,
     const char *tag,
     const char *value
@@ -225,12 +225,12 @@ int marc_record_set_control_field(
         tag == NULL ||
         value == NULL)
     {
-        return -1;
+        return MARC_ERROR_INVALID_ARGUMENT;
     }
 
     if (!is_control_tag(tag))
     {
-        return -1;
+        return MARC_ERROR_INVALID_ARGUMENT;
     }
 
     /*
@@ -264,7 +264,7 @@ int marc_record_set_control_field(
 
     if (field == NULL)
     {
-        return -1;
+        return MARC_ERROR_ALLOCATION;
     }
 
     if (marc_field_set_control_value(
@@ -273,7 +273,7 @@ int marc_record_set_control_field(
     ) != 0)
     {
         marc_field_free(field);
-        return -1;
+        return MARC_ERROR_ALLOCATION;
     }
 
     if (marc_record_add_field(
@@ -282,7 +282,7 @@ int marc_record_set_control_field(
     ) != 0)
     {
         marc_field_free(field);
-        return -1;
+        return MARC_ERROR_ALLOCATION;
     }
 
     return 0;
