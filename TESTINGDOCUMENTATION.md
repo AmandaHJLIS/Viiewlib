@@ -16,7 +16,7 @@ From the ViiewLib project directory, run:
 make test
 ```
 
-The main test program is compiled with:
+The core test program is compiled with:
 
 ```bash
 gcc -std=c11 -Wall -Wextra -Wpedantic \
@@ -32,7 +32,7 @@ and then executed with:
 ./tests/test_marc
 ```
 
-Additional regression tests are maintained as individual C programs under `tests/`.
+The API regression suite is compiled as `tests/test_api_errors` and is run by `make test` alongside the core suite.
 
 Generated executables, object files, static libraries, and `.mrc` test records are excluded from version control through `.gitignore`.
 
@@ -52,13 +52,17 @@ tests/test_marc.c
 
 This program covers the core API, record creation, MARC field handling, ISO 2709 encoding/decoding, and round-trip integrity.
 
-### Standalone regression tests
+### API error and contract regression suite
 
-Tests **19–31** are individual C programs.
+The API regression suite is contained in:
 
-Each standalone test targets a specific edge case or malformed ISO 2709 condition.
+```text
+tests/test_api_errors.c
+```
 
-This separation allows individual regression cases to be compiled and run independently while keeping the primary functional test suite straightforward.
+It covers invalid arguments, clean EOF, truncated input, malformed leader data, and state preservation after rejected operations.
+
+The suite is intentionally separate from the core MARC round-trip tests so that public API contract failures are easy to identify.
 
 ---
 
@@ -348,164 +352,29 @@ The test verifies that:
 
 ---
 
-# Standalone Regression Tests
+# API Contract Regression Tests
 
-## 19. Empty Record
+## 19. API Invalid-Argument and State Tests
 
-**Test file:** `tests/test_empty.c`
+**Test file:** `tests/test_api_errors.c`
 
-An empty MARC record is created.
+The API regression suite verifies that invalid calls return the documented `MARC_ERROR_*` results and do not unexpectedly modify record or field state.
 
-The test verifies:
+Covered cases include:
 
-* Empty record creation succeeds.
-* The record contains zero fields.
-* The ISO 2709 writer rejects the empty record.
-* Cleanup succeeds.
+* NULL record and stream arguments
+* Invalid leader length
+* NULL field insertion
+* Rejected control values on data fields
+* Rejected NUL subfield codes
+* Rejected subfields on control fields
+* Clean end-of-file
+* Truncated leader input
+* Malformed leader input
+* Field-count preservation after a rejected field insertion
+* Data-field state preservation after a rejected control-value operation
 
-The writer currently reports:
-
-```text
-ISO2709 WRITE ERROR: record contains no fields
-```
-
-This is expected behaviour.
-
----
-
-## 20. Control-Fields-Only Record
-
-**Test file:** `tests/test_control_only.c`
-
-A record containing only:
-
-```text
-001
-005
-008
-```
-
-is created.
-
-The test verifies that:
-
-* Control fields can make up the entire record.
-* The field count is correct.
-* The record can be encoded.
-* The record can be decoded.
-* Control-field values survive the round trip.
-
----
-
-## 21. Variable Field With Zero Subfields
-
-**Test file:** `tests/test_empty_subfields.c`
-
-A variable field such as:
-
-```text
-500
-```
-
-is created without any subfields.
-
-The test verifies that the field can be serialized and decoded while retaining its zero-subfield structure.
-
----
-
-## 22. Empty Subfield Value
-
-**Test file:** `tests/test_empty_subfield_value.c`
-
-A field containing an explicitly empty subfield value is created:
-
-```text
-500 $a ""
-```
-
-The test verifies that an empty value survives ISO 2709 encoding and decoding.
-
----
-
-## 23. Repeated Subfields
-
-**Test file:** `tests/test_repeated_subfields.c`
-
-A `650` field containing repeated subfield codes is tested:
-
-```text
-650 $a Libraries
-    $x Metadata
-    $x Cataloguing
-```
-
-The test verifies:
-
-* Multiple subfields in one field.
-* Repeated subfield codes.
-* Subfield order.
-* Subfield values.
-* Round-trip preservation.
-
----
-
-## 24. Long Subfield Value
-
-**Test file:** `tests/test_long_subfield.c`
-
-A `500` field containing a 1,000-character `$a` value is created.
-
-The generated value is compared byte-for-byte after ISO 2709 round-trip processing.
-
-This verifies handling of substantially larger variable field data.
-
----
-
-## 25. Many Subfields
-
-**Test file:** `tests/test_many_subfields.c`
-
-A single `650` field containing 20 subfields is tested.
-
-The test includes repeated `$a`, `$b`, `$x`, `$y`, and `$z` values as well as `$6` and `$8`.
-
-The test verifies:
-
-* Large subfield counts.
-* Repeated subfield codes.
-* Ordering.
-* Value preservation.
-* ISO 2709 round-trip integrity.
-
----
-
-## 26. Many Fields
-
-**Test file:** `tests/test_many_fields.c`
-
-A larger MARC record is generated containing:
-
-* `001`
-* `005`
-* `008`
-* 97 repeated `500` fields
-
-for a total of:
-
-```text
-100 fields
-```
-
-The test verifies successful encoding and decoding of the larger record.
-
-The current generated record is:
-
-```text
-Record length:    3716 bytes
-Directory:        1201 bytes
-Base address:     1225
-Variable data:    2490 bytes
-```
+Expected error categories are expressed through the public `MARC_Result` API.
 
 ---
 
@@ -697,7 +566,13 @@ The current core suite passes all 18 tests contained in:
 tests/test_marc.c
 ```
 
-The standalone regression tests covering tests 19–31 also pass.
+The API contract suite also passes all 13 current regression cases in:
+
+```text
+tests/test_api_errors.c
+```
+
+The library also cross-compiles for Wii with devkitPPC with no compiler warnings on the current `api-refinement` branch.
 
 Current single-record ISO 2709 robustness milestone:
 
@@ -898,6 +773,8 @@ Current status:
 | ISO 2709 decoding tests    | PASS                |
 | ISO 2709 round-trip tests  | PASS                |
 | Malformed-record tests     | PASS                |
+| API contract regression    | PASS                |
+| Wii/devkitPPC cross-build  | PASS                |
 | Single-record robustness   | **COMPLETE**        |
 | Multi-record testing       | PLANNED             |
 | External interoperability  | PLANNED             |
