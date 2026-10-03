@@ -130,8 +130,8 @@ MARC_Result marc_record_set_leader(
  * If this function fails, ownership remains with the caller.
  *
  * Returns:
- *     0 on success.
- *     A non-zero value on failure.
+ *     MARC_SUCCESS on success.
+ *     A MARC_ERROR_* value on failure.
  */
 MARC_Result marc_record_add_field(
     MARC_Record *record,
@@ -197,8 +197,8 @@ MARC_Field *marc_record_get_field_by_tag(
  * The supplied value is copied by the library.
  *
  * Returns:
- *     0 on success.
- *     A non-zero value on failure.
+ *     MARC_SUCCESS on success.
+ *     A MARC_ERROR_* value on failure.
  */
 MARC_Result marc_record_set_control_field(
     MARC_Record *record,
@@ -320,8 +320,8 @@ int marc_field_is_control_field(
  * use marc_field_add_subfield() instead.
  *
  * Returns:
- *     0 on success.
- *     A non-zero value on failure.
+ *     MARC_SUCCESS on success.
+ *     A MARC_ERROR_* value on failure.
  */
 MARC_Result marc_field_set_control_value(
     MARC_Field *field,
@@ -359,8 +359,8 @@ const char *marc_field_get_control_value(
  * The supplied value is copied by the library.
  *
  * Returns:
- *     0 on success.
- *     A non-zero value on failure.
+ *     MARC_SUCCESS on success.
+ *     A MARC_ERROR_* value on failure.
  */
 MARC_Result marc_field_add_subfield(
     MARC_Field *field,
@@ -467,9 +467,13 @@ const char *marc_subfield_get_value(
  * whether to discard the partially populated record.
  *
  * Returns:
- *     0 on success.
- *     A non-zero value if the record is malformed, incomplete, or an
- *     I/O or allocation error occurs.
+ *     MARC_SUCCESS on success.
+ *     MARC_ERROR_EOF if no record is available at the current stream position.
+ *     MARC_ERROR_TRUNCATED if the record is incomplete.
+ *     MARC_ERROR_MALFORMED if the record structure is invalid.
+ *     MARC_ERROR_IO for an I/O failure.
+ *     MARC_ERROR_ALLOCATION for an allocation failure.
+ *     MARC_ERROR_INVALID_ARGUMENT for invalid arguments.
  */
 MARC_Result marc_record_read(
     MARC_Record *record,
@@ -482,9 +486,11 @@ MARC_Result marc_record_read(
  * The record is not modified by this operation.
  *
  * Returns:
- *     0 on success.
- *     A non-zero value if the record is invalid, cannot be encoded,
- *     or an I/O error occurs.
+ *     MARC_SUCCESS on success.
+ *     MARC_ERROR_INVALID_ARGUMENT for invalid arguments or an
+ *     unrepresentable ISO 2709 record.
+ *     MARC_ERROR_ALLOCATION for allocation failure.
+ *     MARC_ERROR_IO for an encoding or stream I/O failure.
  */
 MARC_Result marc_record_write(
     const MARC_Record *record,
