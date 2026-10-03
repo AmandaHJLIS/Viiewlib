@@ -325,10 +325,20 @@ int main(void)
 
         raw[last_field_terminator] = 'X';
 
-        freopen(NULL, "w+b", file);
+        rewind(file);
         if (fwrite(raw, 1, raw_length, file) != raw_length)
         {
             printf("FAIL: Could not rewrite partial-read fixture.\n");
+            free(raw);
+            fclose(file);
+            marc_record_free(source);
+            marc_record_free(loaded);
+            return 1;
+        }
+
+        if (fflush(file) != 0)
+        {
+            printf("FAIL: Could not flush partial-read fixture.\n");
             free(raw);
             fclose(file);
             marc_record_free(source);
