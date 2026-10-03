@@ -865,7 +865,7 @@ MARC_Result marc_record_read(
             ] != MARC_FIELD_TERMINATOR)
         {
             free(buffer);
-            return MARC_ERROR_ALLOCATION;
+            return MARC_ERROR_MALFORMED;
         }
 
         /*
@@ -922,7 +922,7 @@ MARC_Result marc_record_read(
         if (current_field_length < 3)
         {
             free(buffer);
-            return MARC_ERROR_ALLOCATION;
+            return MARC_ERROR_MALFORMED;
         }
 
         size_t data_length =
@@ -947,7 +947,7 @@ MARC_Result marc_record_read(
         if (field == NULL)
         {
             free(buffer);
-            return -1;
+            return MARC_ERROR_ALLOCATION;
         }
 
         size_t offset = 2;
@@ -974,7 +974,7 @@ MARC_Result marc_record_read(
             {
                 marc_field_free(field);
                 free(buffer);
-                return -1;
+                return MARC_ERROR_MALFORMED;
             }
 
             char code =
@@ -1005,7 +1005,7 @@ MARC_Result marc_record_read(
             {
                 marc_field_free(field);
                 free(buffer);
-                return -1;
+                return MARC_ERROR_ALLOCATION;
             }
 
             memcpy(
@@ -1032,7 +1032,7 @@ MARC_Result marc_record_read(
                 free(value);
                 marc_field_free(field);
                 free(buffer);
-                return -1;
+                return MARC_ERROR_ALLOCATION;
             }
 
             free(value);
