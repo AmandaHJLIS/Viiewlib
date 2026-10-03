@@ -18,22 +18,30 @@ typedef struct MARC_Record MARC_Record;
 typedef struct MARC_Field MARC_Field;
 typedef struct MARC_Subfield MARC_Subfield;
 
+typedef enum MARC_Result
+{
+    MARC_SUCCESS = 0,
+    MARC_ERROR_INVALID_ARGUMENT = 1,
+    MARC_ERROR_ALLOCATION = 2,
+    MARC_ERROR_IO = 3,
+    MARC_ERROR_MALFORMED = 4,
+    MARC_ERROR_TRUNCATED = 5,
+    MARC_ERROR_EOF = 6
+} MARC_Result;
+
 
 /*
  * --------------------------------------------------------------------------
  * API result conventions
  * --------------------------------------------------------------------------
  *
- * The current public API uses 0 for success and a non-zero value for
- * failure on functions that return int. NULL is used for pointer-returning
- * lookups and allocation failures. This convention is intentionally being
- * reviewed on the api-refinement branch so that individual failure classes
- * can be distinguished without changing the library's ownership rules.
+ * Functions that can fail return MARC_Result. Zero means success; non-zero
+ * values identify the broad failure class. Pointer-returning constructors
+ * and lookups continue to use NULL where appropriate.
  *
- * The refinement branch also documents which operations leave caller-owned
- * records unchanged when an operation fails and which operations may have
- * partially populated a record. These contracts should be treated as part
- * of the public API rather than implementation details.
+ * The result codes are intentionally broad at this stage. The API refinement
+ * work will keep their meanings stable while documenting ownership and
+ * record-state behaviour for failed operations.
  */
 
 /*
@@ -95,10 +103,10 @@ const char *marc_record_get_leader(
  * of the input string.
  *
  * Returns:
- *     0 on success.
- *     A non-zero value on failure.
+ *     MARC_SUCCESS on success.
+ *     A suitable MARC_ERROR_* value on failure.
  */
-int marc_record_set_leader(
+MARC_Result marc_record_set_leader(
     MARC_Record *record,
     const char *leader
 );
@@ -125,7 +133,7 @@ int marc_record_set_leader(
  *     0 on success.
  *     A non-zero value on failure.
  */
-int marc_record_add_field(
+MARC_Result marc_record_add_field(
     MARC_Record *record,
     MARC_Field *field
 );
@@ -192,7 +200,7 @@ MARC_Field *marc_record_get_field_by_tag(
  *     0 on success.
  *     A non-zero value on failure.
  */
-int marc_record_set_control_field(
+MARC_Result marc_record_set_control_field(
     MARC_Record *record,
     const char *tag,
     const char *value
@@ -315,7 +323,7 @@ int marc_field_is_control_field(
  *     0 on success.
  *     A non-zero value on failure.
  */
-int marc_field_set_control_value(
+MARC_Result marc_field_set_control_value(
     MARC_Field *field,
     const char *value
 );
@@ -354,7 +362,7 @@ const char *marc_field_get_control_value(
  *     0 on success.
  *     A non-zero value on failure.
  */
-int marc_field_add_subfield(
+MARC_Result marc_field_add_subfield(
     MARC_Field *field,
     char code,
     const char *value
@@ -463,7 +471,7 @@ const char *marc_subfield_get_value(
  *     A non-zero value if the record is malformed, incomplete, or an
  *     I/O or allocation error occurs.
  */
-int marc_record_read(
+MARC_Result marc_record_read(
     MARC_Record *record,
     FILE *stream
 );
@@ -478,7 +486,7 @@ int marc_record_read(
  *     A non-zero value if the record is invalid, cannot be encoded,
  *     or an I/O error occurs.
  */
-int marc_record_write(
+MARC_Result marc_record_write(
     const MARC_Record *record,
     FILE *stream
 );
