@@ -23,12 +23,12 @@ const char *tag
 {
 if (tag == NULL)
 {
-return MARC_SUCCESS;
+return 0;
 }
 
 if (strlen(tag) != 3)
 {
-    return MARC_SUCCESS;
+    return 0;
 }
 
 return (
