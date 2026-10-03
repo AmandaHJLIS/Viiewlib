@@ -92,6 +92,24 @@ int main(void)
         MARC_ERROR_INVALID_ARGUMENT
     );
 
+    passed &= expect_result(
+        "NULL stream rejected by marc_record_write()",
+        marc_record_write(record, NULL),
+        MARC_ERROR_INVALID_ARGUMENT
+    );
+
+    passed &= expect_result(
+        "NULL record rejected by marc_record_read()",
+        marc_record_read(NULL, stdout),
+        MARC_ERROR_INVALID_ARGUMENT
+    );
+
+    passed &= expect_result(
+        "NULL stream rejected by marc_record_read()",
+        marc_record_read(record, NULL),
+        MARC_ERROR_INVALID_ARGUMENT
+    );
+
     file = tmpfile();
     if (file == NULL)
     {
