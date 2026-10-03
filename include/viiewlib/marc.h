@@ -21,6 +21,23 @@ typedef struct MARC_Subfield MARC_Subfield;
 
 /*
  * --------------------------------------------------------------------------
+ * API result conventions
+ * --------------------------------------------------------------------------
+ *
+ * The current public API uses 0 for success and a non-zero value for
+ * failure on functions that return int. NULL is used for pointer-returning
+ * lookups and allocation failures. This convention is intentionally being
+ * reviewed on the api-refinement branch so that individual failure classes
+ * can be distinguished without changing the library's ownership rules.
+ *
+ * The refinement branch also documents which operations leave caller-owned
+ * records unchanged when an operation fails and which operations may have
+ * partially populated a record. These contracts should be treated as part
+ * of the public API rather than implementation details.
+ */
+
+/*
+ * --------------------------------------------------------------------------
  * MARC record management
  * --------------------------------------------------------------------------
  */
