@@ -603,7 +603,7 @@ MARC_Result marc_record_read(
         base_address_long < MARC_LEADER_LENGTH ||
         base_address_long >= (long)record_length)
     {
-        return ferror(stream) ? MARC_ERROR_IO : MARC_ERROR_TRUNCATED;
+        return MARC_ERROR_MALFORMED;
     }
 
     size_t base_address =
