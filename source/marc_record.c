@@ -17,12 +17,12 @@ static int is_control_tag(
 {
     if (tag == NULL)
     {
-        return 0;
+        return MARC_SUCCESS;
     }
 
     if (strlen(tag) != 3)
     {
-        return 0;
+        return MARC_SUCCESS;
     }
 
     return (
@@ -145,7 +145,7 @@ MARC_Result marc_record_set_leader(
 
     record->leader[24] = '\0';
 
-    return 0;
+    return MARC_SUCCESS;
 }
 
 MARC_Result marc_record_add_field(
@@ -180,7 +180,7 @@ MARC_Result marc_record_add_field(
 
     record->field_count++;
 
-    return 0;
+    return MARC_SUCCESS;
 }
 
 size_t marc_record_get_field_count(
@@ -189,7 +189,7 @@ size_t marc_record_get_field_count(
 {
     if (record == NULL)
     {
-        return 0;
+        return MARC_SUCCESS;
     }
 
     return record->field_count;
@@ -267,25 +267,29 @@ MARC_Result marc_record_set_control_field(
         return MARC_ERROR_ALLOCATION;
     }
 
-    if (marc_field_set_control_value(
+    MARC_Result value_result = marc_field_set_control_value(
         field,
         value
-    ) != 0)
+    );
+
+    if (value_result != MARC_SUCCESS)
     {
         marc_field_free(field);
-        return MARC_ERROR_ALLOCATION;
+        return value_result;
     }
 
-    if (marc_record_add_field(
+    MARC_Result add_result = marc_record_add_field(
         record,
         field
-    ) != 0)
+    );
+
+    if (add_result != MARC_SUCCESS)
     {
         marc_field_free(field);
-        return MARC_ERROR_ALLOCATION;
+        return add_result;
     }
 
-    return 0;
+    return MARC_SUCCESS;
 }
 
 const char *marc_record_get_control_field(
