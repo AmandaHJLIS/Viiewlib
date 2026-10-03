@@ -179,6 +179,51 @@ int main(void)
     );
     fclose(file);
 
+    file = tmpfile();
+    if (file == NULL)
+    {
+        printf("FAIL: Could not create truncated-record fixture.\\n");
+        marc_record_free(record);
+        return 1;
+    }
+
+    /*
+     * The leader is complete, but the declared record length is larger
+     * than the bytes available in the stream. This is truncation rather
+     * than malformed structure because the input ends prematurely.
+     */
+    fputs("00030nam a2200000   4500", file);
+    rewind(file);
+
+    passed &= expect_result(
+        "Truncated record body reported as truncated",
+        marc_record_read(record, file),
+        MARC_ERROR_TRUNCATED
+    );
+    fclose(file);
+
+    file = tmpfile();
+    if (file == NULL)
+    {
+        printf("FAIL: Could not create malformed-base-address fixture.\\n");
+        marc_record_free(record);
+        return 1;
+    }
+
+    /*
+     * A complete leader with a non-numeric base address is malformed
+     * leader metadata, not a truncated stream.
+     */
+    fputs("00024nam a2200abc   4500", file);
+    rewind(file);
+
+    passed &= expect_result(
+        "Malformed base address reported as malformed",
+        marc_record_read(record, file),
+        MARC_ERROR_MALFORMED
+    );
+    fclose(file);
+
     /*
      * Read-state behaviour: a malformed later field may leave earlier
      * decoded fields in the destination record.
