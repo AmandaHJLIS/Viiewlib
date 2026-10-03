@@ -28,6 +28,8 @@ WII_OBJECTS = \
 	source/marc_iso2709_wii.o
 
 TEST_TARGET = tests/test_marc
+API_TEST_TARGET = tests/test_api_errors
+MULTI_TEST_TARGET = tests/test_multi_record
 
 .PHONY: all wii clean test
 
@@ -50,9 +52,17 @@ source/%_wii.o: source/%.c
 $(TEST_TARGET): tests/test_marc.c $(TARGET)
 	$(CC) $(CFLAGS) $< -L. -lviiewlib -o $@
 
-test: $(TEST_TARGET)
+$(API_TEST_TARGET): tests/test_api_errors.c $(TARGET)
+	$(CC) $(CFLAGS) $< -L. -lviiewlib -o $@
+
+$(MULTI_TEST_TARGET): tests/test_multi_record.c $(TARGET)
+	$(CC) $(CFLAGS) $< -L. -lviiewlib -o $@
+
+test: $(TEST_TARGET) $(API_TEST_TARGET) $(MULTI_TEST_TARGET)
 	./$(TEST_TARGET)
+	./$(API_TEST_TARGET)
+	./$(MULTI_TEST_TARGET)
 
 clean:
-	rm -f $(OBJECTS) $(WII_OBJECTS) $(TARGET) $(WII_TARGET) $(TEST_TARGET)
+	rm -f $(OBJECTS) $(WII_OBJECTS) $(TARGET) $(WII_TARGET) $(TEST_TARGET) $(API_TEST_TARGET) $(MULTI_TEST_TARGET)
 	rm -f test.mrc

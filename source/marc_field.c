@@ -172,7 +172,7 @@ return is_control_tag(
 
 }
 
-int marc_field_set_control_value(
+MARC_Result marc_field_set_control_value(
 MARC_Field *field,
 const char *value
 )
@@ -182,14 +182,14 @@ char *new_value;
 if (field == NULL ||
     value == NULL)
 {
-    return -1;
+    return MARC_ERROR_INVALID_ARGUMENT;
 }
 
 if (!is_control_tag(
     field->tag
 ))
 {
-    return -1;
+    return MARC_ERROR_INVALID_ARGUMENT;
 }
 
 new_value = malloc(
@@ -198,7 +198,7 @@ new_value = malloc(
 
 if (new_value == NULL)
 {
-    return -1;
+    return MARC_ERROR_ALLOCATION;
 }
 
 strcpy(
@@ -212,7 +212,7 @@ free(
 
 field->control_value = new_value;
 
-return 0;
+return MARC_SUCCESS;
 
 }
 
@@ -236,7 +236,7 @@ return field->control_value;
 
 }
 
-int marc_field_add_subfield(
+MARC_Result marc_field_add_subfield(
 MARC_Field *field,
 char code,
 const char *value
@@ -249,14 +249,14 @@ if (field == NULL ||
     value == NULL ||
     code == '\0')
 {
-    return -1;
+    return MARC_ERROR_INVALID_ARGUMENT;
 }
 
 if (is_control_tag(
     field->tag
 ))
 {
-    return -1;
+    return MARC_ERROR_INVALID_ARGUMENT;
 }
 
 subfield = marc_subfield_create(
@@ -266,7 +266,7 @@ subfield = marc_subfield_create(
 
 if (subfield == NULL)
 {
-    return -1;
+    return MARC_ERROR_ALLOCATION;
 }
 
 new_subfields = realloc(
@@ -281,7 +281,7 @@ if (new_subfields == NULL)
         subfield
     );
 
-    return -1;
+    return MARC_ERROR_ALLOCATION;
 }
 
 field->subfields = new_subfields;
@@ -292,7 +292,7 @@ field->subfields[
 
 field->subfield_count++;
 
-return 0;
+return MARC_SUCCESS;
 
 }
 
@@ -302,7 +302,7 @@ const MARC_Field *field
 {
 if (field == NULL)
 {
-return 0;
+return MARC_SUCCESS;
 }
 
 return field->subfield_count;

@@ -4,6 +4,21 @@
 
 ViiewLib is a lightweight, portable C library for working with MARC 21 records and ISO 2709-encoded bibliographic data. It is designed to provide a simple API with minimal dependencies for applications that need to read, manipulate, validate, and write MARC records.
 
+## API Refinement Branch
+
+This branch (`api-refinement`) is the experimental development branch for the ViiewLib 0.6.0-beta API refinement work. It is based directly on `main` and is used to audit and improve the public C API before changes are considered for the main branch.
+
+The refinement work focuses on:
+
+* consistent return-value and error semantics
+* explicit API contracts for invalid arguments, malformed data, EOF, I/O failures, and allocation failures
+* predictable ownership and record-state behaviour on failed operations
+* clearer documentation of public functions
+* expanded regression and API-misuse tests
+* preserving existing MARC 21 and ISO 2709 behaviour while the API is cleaned up
+
+Changes on this branch are experimental and should not be treated as the stable public API until reviewed and merged into `main`.
+
 ## Current Status
 
 **Early-stage functional / active development.**
@@ -29,7 +44,7 @@ Current functionality includes:
 
 The current test suite covers record creation, control fields, variable fields, repeated fields, special characters, field lookup, ISO 2709 encoding and decoding, round-trip integrity, large field/subfield values, and malformed or truncated ISO 2709 input.
 
-The library currently builds and tests successfully with a standard C11 toolchain. Portability testing with other toolchains and platforms, including devkitPPC/Wii, is planned.
+The library currently builds and tests successfully with a standard C11 toolchain and has been cross-compiled successfully with devkitPPC for Wii on the `api-refinement` branch.
 
 ViiewLib remains under active development. API design, validation, error handling, documentation, standards coverage, interoperability, and additional MARC 21 / ISO 2709 functionality will continue to evolve.
 
