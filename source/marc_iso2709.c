@@ -902,10 +902,10 @@ MARC_Result marc_record_read(
 
             free(value);
 
-            if (result != 0)
+            if (result != MARC_SUCCESS)
             {
                 free(buffer);
-                return MARC_ERROR_ALLOCATION;
+                return result;
             }
 
             continue;
@@ -1057,5 +1057,5 @@ MARC_Result marc_record_read(
 
     free(buffer);
 
-    return 0;
+    return MARC_SUCCESS;
 }
