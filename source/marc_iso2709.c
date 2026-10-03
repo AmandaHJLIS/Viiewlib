@@ -896,7 +896,7 @@ MARC_Result marc_record_read(
             value[value_length] =
                 '\0';
 
-            int result =
+            MARC_Result result =
                 marc_record_set_control_field(
                     record,
                     tag,
@@ -1048,7 +1048,7 @@ MARC_Result marc_record_read(
         {
             marc_field_free(field);
             free(buffer);
-            return -1;
+            return MARC_ERROR_ALLOCATION;
         }
     }
 
